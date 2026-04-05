@@ -123,7 +123,16 @@ function Badge({ status }) {
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { profile, signOut, currencySymbol } = useAuth()
+  const { user, profile, loading, signOut, currencySymbol } = useAuth()
+
+// Wait for profile to load before rendering
+if (loading || !profile) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#1a1a1a', color: '#888', fontSize: 14 }}>
+      Loading GlowSuite…
+    </div>
+  )
+}
   const navigate = useNavigate()
   const [active, setActive] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
