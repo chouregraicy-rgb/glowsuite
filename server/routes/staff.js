@@ -4,7 +4,6 @@ import { requireAuth, requireOwner, supabaseAdmin } from "../middleware/auth.js"
 
 const router = Router();
 
-// ── Add Staff (Owner only) ──────────────────────────────────────────
 router.post("/add", requireAuth, requireOwner, async (req, res, next) => {
   try {
     const { name, email, phone, designation } = req.body;
@@ -15,7 +14,6 @@ router.post("/add", requireAuth, requireOwner, async (req, res, next) => {
 
     const tempPassword = generateTempPassword();
 
-    // Create Supabase auth account
     const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({
       email,
       password: tempPassword,
@@ -29,7 +27,6 @@ router.post("/add", requireAuth, requireOwner, async (req, res, next) => {
       throw authErr;
     }
 
-    // Insert into staff table
     const { data: staffRow, error: dbErr } = await supabaseAdmin
       .from("staff")
       .insert([{
@@ -47,9 +44,18 @@ router.post("/add", requireAuth, requireOwner, async (req, res, next) => {
       .single();
 
     if (dbErr) {
-      await supabaseAdmin.auth.admin.deleteUser(authData.user.id); // rollback
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
       throw dbErr;
     }
+
+    // Also insert into users table so AuthContext works on frontend
+    await supabaseAdmin.from("users").upsert({
+      id: authData.user.id,
+      name,
+      role: "employee",
+      salon_id,
+      phone: phone || null,
+    }, { onConflict: "id" });
 
     return res.status(201).json({
       message: "Staff added successfully",
@@ -59,7 +65,6 @@ router.post("/add", requireAuth, requireOwner, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── List Staff ──────────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res, next) => {
   try {
     const { role, salon_id, id } = req.user;
@@ -70,7 +75,6 @@ router.get("/", requireAuth, async (req, res, next) => {
         .select("id, name, email, phone, role, designation, created_at")
         .eq("salon_id", salon_id)
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       return res.json({ staff: data });
     }
@@ -80,13 +84,11 @@ router.get("/", requireAuth, async (req, res, next) => {
       .select("id, name, email, phone, role, designation")
       .eq("auth_user_id", id)
       .single();
-
     if (error) throw error;
     return res.json({ staff: [data] });
   } catch (err) { next(err); }
 });
 
-// ── Clients (masked for employees) ─────────────────────────────────
 router.get("/clients", requireAuth, async (req, res, next) => {
   try {
     const { salon_id, role } = req.user;
@@ -97,7 +99,6 @@ router.get("/clients", requireAuth, async (req, res, next) => {
       .select("id, name, email, phone, created_at, total_visits, last_visit")
       .eq("salon_id", salon_id)
       .order("name");
-
     if (error) throw error;
 
     const result = data.map(c => ({
@@ -105,12 +106,10 @@ router.get("/clients", requireAuth, async (req, res, next) => {
       email: isOwner ? c.email : maskEmail(c.email),
       phone: isOwner ? c.phone : maskPhone(c.phone),
     }));
-
     return res.json({ clients: result });
   } catch (err) { next(err); }
 });
 
-// ── Delete Staff ────────────────────────────────────────────────────
 router.delete("/:id", requireAuth, requireOwner, async (req, res, next) => {
   try {
     const { data: row, error } = await supabaseAdmin
@@ -124,12 +123,10 @@ router.delete("/:id", requireAuth, requireOwner, async (req, res, next) => {
 
     await supabaseAdmin.from("staff").delete().eq("id", req.params.id);
     await supabaseAdmin.auth.admin.deleteUser(row.auth_user_id);
-
     return res.json({ message: "Staff removed" });
   } catch (err) { next(err); }
 });
 
-// ── Helpers ─────────────────────────────────────────────────────────
 function generateTempPassword() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#$!";
   let pw = "";
