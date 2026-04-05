@@ -1,6 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import AddStaffModal from '../components/AddStaffModal'
+import { supabase } from '../lib/supabase.js'
+
+const COLORS = [
+  { color: '#8B3A52', bg: '#FDF0F3' },
+  { color: '#0F6E56', bg: '#E1F5EE' },
+  { color: '#185FA5', bg: '#E6F1FB' },
+  { color: '#BA7517', bg: '#FAEEDA' },
+  { color: '#533AB7', bg: '#EEEDFE' },
+]
 
 // ─── MOCK DATA ────────────────────────────────────────────────────────────────
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -322,7 +331,53 @@ function StaffCard({ staff, onClick, sym }) {
 export default function StaffManager() {
   const { currencySymbol, profile } = useAuth()
   const sym = currencySymbol || profile?.salons?.settings?.currencySymbol || '₹'
-  const [staff] = useState(MOCK_STAFF)
+  const [staff, setStaff] = useState([])
+  const [loading, setLoading] = useState(true)
+
+useEffect(() => {
+  async function fetchStaff() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      const res = await fetch(`${import.meta.env.VITE_SERVER_URL || 'http://localhost:4000'}/api/staff`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await res.json()
+      if (data.staff?.length > 0) {
+        // Map API staff to match the card format
+        const mapped = data.staff.map((s, i) => ({
+          id: s.id,
+          name: s.name,
+          role: s.designation || s.role || 'Staff',
+          phone: s.phone || '—',
+          email: s.email,
+          joinDate: s.created_at,
+          salaryBase: 15000,
+          incentiveRate: 10,
+          advanceBalance: 0,
+          status: 'active',
+          specialization: [],
+          attendance: { present: 22, absent: 1, halfDay: 1, leave: 0 },
+          thisMonthServices: 0,
+          thisMonthRevenue: 0,
+          incentiveEarned: 0,
+          netSalary: 0,
+          color: COLORS[i % COLORS.length].color,
+          bg: COLORS[i % COLORS.length].bg,
+          transfers: [],
+          advances: [],
+        }))
+        setStaff(mapped)
+      } else {
+        setStaff(MOCK_STAFF) // fallback to mock if no real staff yet
+      }
+    } catch {
+      setStaff(MOCK_STAFF) // fallback on error
+    }
+    setLoading(false)
+  }
+  fetchStaff()
+}, [])
   const [showAddStaff, setShowAddStaff] = useState(false)
   const [selected, setSelected] = useState(null)
   const [view, setView] = useState('cards') // cards | leaderboard
@@ -397,6 +452,7 @@ export default function StaffManager() {
       )}
 
       {/* Cards view */}
+      {loading && <div style={{ textAlign: 'center', padding: 40, color: '#B0A89F' }}>Loading staff...</div>}
       {view === 'cards' && (
         <div style={P.grid}>
           {staff.map(emp => <StaffCard key={emp.id} staff={emp} onClick={setSelected} sym={sym} />)}
