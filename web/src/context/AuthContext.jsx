@@ -11,6 +11,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
+      setProfile(null)
       if (session?.user) fetchProfile(session.user.id)
       else setLoading(false)
     })
@@ -18,6 +19,7 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setUser(session?.user ?? null)
+        setProfile(null)
         if (session?.user) fetchProfile(session.user.id)
         else { setProfile(null); setLoading(false) }
       }
