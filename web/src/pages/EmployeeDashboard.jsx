@@ -1,49 +1,28 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase.js'
 
-
-
-const TODAY = new Date().toISOString().split('T')[0]
 const TODAY_LABEL = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
 const MY_APPOINTMENTS = [
   { id: 1, clientToken: '#A047', service: 'Bridal Makeup + Hair', time: '10:00 AM', duration: 180, amount: 8500, status: 'serving', notes: 'Pre-bridal trial. Client prefers soft tones.', checklist: [{ task: 'Skin prep + primer', done: true }, { task: 'Foundation + contouring', done: true }, { task: 'Eye makeup', done: false }, { task: 'Lips', done: false }, { task: 'Hair styling', done: false }, { task: 'Setting spray', done: false }] },
-  { id: 2, clientToken: '#B112', service: 'Hair Color — Balayage', time: '1:30 PM', duration: 120, amount: 6500, status: 'upcoming', notes: 'No ammonia dye. Client preference noted.', checklist: [{ task: 'Consultation + patch test', done: false }, { task: 'Sectioning', done: false }, { task: 'Color application', done: false }, { task: 'Processing time', done: false }, { task: 'Rinse + toning', done: false }, { task: 'Blowdry + finish', done: false }] },
+  { id: 2, clientToken: '#B112', service: 'Hair Color — Balayage', time: '1:30 PM', duration: 120, amount: 6500, status: 'upcoming', notes: 'No ammonia dye.', checklist: [{ task: 'Consultation + patch test', done: false }, { task: 'Sectioning', done: false }, { task: 'Color application', done: false }, { task: 'Processing time', done: false }, { task: 'Rinse + toning', done: false }, { task: 'Blowdry + finish', done: false }] },
   { id: 3, clientToken: '#D203', service: 'Keratin Treatment', time: '4:00 PM', duration: 120, amount: 5500, status: 'upcoming', notes: '', checklist: [{ task: 'Clarifying shampoo', done: false }, { task: 'Apply keratin solution', done: false }, { task: 'Processing (45 min)', done: false }, { task: 'Blow dry', done: false }, { task: 'Flat iron seal', done: false }] },
 ]
 
 const MY_EARNINGS = {
-  thisMonth: {
-    base: 22000,
-    incentive: 14200,
-    advance: 5000,
-    net: 31200,
-    servicesCount: 48,
-    revenue: 142000,
-  },
-  lastMonth: { net: 28500, servicesCount: 42 },
-  weeklyEarnings: [
-    { week: 'W1', amount: 8200 },
-    { week: 'W2', amount: 11400 },
-    { week: 'W3', amount: 9800 },
-    { week: 'W4', amount: 10800 },
-  ],
+  thisMonth: { base: 22000, incentive: 14200, advance: 5000, net: 31200, servicesCount: 48, revenue: 142000 },
+  weeklyEarnings: [{ week: 'W1', amount: 8200 }, { week: 'W2', amount: 11400 }, { week: 'W3', amount: 9800 }, { week: 'W4', amount: 10800 }],
 }
 
-const MY_ATTENDANCE = {
-  present: 22, absent: 1, halfDay: 1, leave: 0,
-  checkedIn: true,
-  checkInTime: '9:02 AM',
-  checkOutTime: null,
-}
+const MY_ATTENDANCE = { present: 22, absent: 1, halfDay: 1, leave: 0, checkedIn: true, checkInTime: '9:02 AM', checkOutTime: null }
 
 const MESSAGES = [
-  { id: 1, from: 'Owner', text: 'Kavitha, client #A047 is a pre-bridal trial today. Please note her skin is sensitive.', time: '8:45 AM', read: true },
-  { id: 2, from: 'Owner', text: 'Tomorrow\'s 11am slot for #C089 has been rescheduled to 3pm. Please update your availability.', time: 'Yesterday', read: false },
+  { id: 1, from: 'Owner', text: 'Great work on the bridal trial today!', time: '8:45 AM', read: true },
+  { id: 2, from: 'Owner', text: "Tomorrow's 11am slot has been rescheduled to 3pm.", time: 'Yesterday', read: false },
 ]
 
-// ─── STATUS CONFIG ────────────────────────────────────────────────────────────
 const STATUS = {
   serving:  { label: 'Serving Now', color: '#8B3A52', bg: '#FDF0F3' },
   upcoming: { label: 'Upcoming',    color: '#185FA5', bg: '#E6F1FB' },
@@ -51,20 +30,16 @@ const STATUS = {
   cancelled:{ label: 'Cancelled',   color: '#993C1D', bg: '#FAECE7' },
 }
 
-// ─── APPOINTMENT DETAIL ───────────────────────────────────────────────────────
 function ApptDetail({ appt, onClose, onUpdate }) {
   const [checklist, setChecklist] = useState(appt.checklist)
-
   function toggleTask(i) {
     const updated = checklist.map((t, idx) => idx === i ? { ...t, done: !t.done } : t)
     setChecklist(updated)
     onUpdate(appt.id, updated)
   }
-
   const done = checklist.filter(t => t.done).length
   const pct = Math.round((done / checklist.length) * 100)
   const s = STATUS[appt.status] || STATUS.upcoming
-
   return (
     <div style={D.overlay}>
       <div style={D.panel}>
@@ -75,26 +50,18 @@ function ApptDetail({ appt, onClose, onUpdate }) {
           </div>
           <button style={D.closeBtn} onClick={onClose}>✕</button>
         </div>
-
-        {/* Client token — masked */}
         <div style={D.tokenBox}>
           <div style={D.tokenLabel}>🛡 Your client (masked for privacy)</div>
           <div style={D.token}>{appt.clientToken}</div>
           <div style={D.tokenSub}>Contact owner for client details</div>
         </div>
-
-        {/* Status */}
         <div style={{ ...D.statusBadge, background: s.bg, color: s.color }}>{s.label}</div>
-
-        {/* Notes from owner */}
         {appt.notes && (
           <div style={D.notesBox}>
             <div style={D.notesTitle}>📋 Notes from owner</div>
             <div style={D.notesText}>{appt.notes}</div>
           </div>
         )}
-
-        {/* Service checklist */}
         <div style={D.checklistTitle}>
           Service Checklist · {done}/{checklist.length} done
           <div style={D.progressBar}><div style={{ ...D.progressFill, width: `${pct}%` }} /></div>
@@ -104,28 +71,17 @@ function ApptDetail({ appt, onClose, onUpdate }) {
             <div style={{ ...D.checkbox, background: task.done ? '#0F6E56' : '#fff', borderColor: task.done ? '#0F6E56' : '#E8E0D8' }}>
               {task.done && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
             </div>
-            <span style={{ fontSize: 14, color: task.done ? '#B0A89F' : '#1A1208', textDecoration: task.done ? 'line-through' : 'none' }}>
-              {task.task}
-            </span>
+            <span style={{ fontSize: 14, color: task.done ? '#B0A89F' : '#1A1208', textDecoration: task.done ? 'line-through' : 'none' }}>{task.task}</span>
           </div>
         ))}
-
-        {pct === 100 && (
-          <button style={D.markDoneBtn}>✓ Mark Service as Complete</button>
-        )}
+        {pct === 100 && <button style={D.markDoneBtn}>✓ Mark Service as Complete</button>}
       </div>
     </div>
   )
 }
 
-// ─── MAIN EMPLOYEE DASHBOARD ──────────────────────────────────────────────────
 export default function EmployeeDashboard() {
   const { signOut, profile } = useAuth()
-const EMPLOYEE = {
-  name: profile?.name || 'Employee',
-  role: profile?.designation || profile?.role || 'Staff',
-  incentiveRate: 10,
-}
   const navigate = useNavigate()
   const [tab, setTab] = useState('schedule')
   const [selectedAppt, setSelectedAppt] = useState(null)
@@ -136,6 +92,19 @@ const EMPLOYEE = {
   const [messages, setMessages] = useState(MESSAGES)
   const [unread] = useState(messages.filter(m => !m.read).length)
   const [time, setTime] = useState(new Date())
+
+  // Change password state
+  const [showPwdChange, setShowPwdChange] = useState(false)
+  const [newPwd, setNewPwd] = useState('')
+  const [confirmPwd, setConfirmPwd] = useState('')
+  const [pwdMsg, setPwdMsg] = useState('')
+  const [pwdLoading, setPwdLoading] = useState(false)
+
+  const EMPLOYEE = {
+    name: profile?.name || 'Employee',
+    role: profile?.designation || profile?.role || 'Staff',
+    incentiveRate: 10,
+  }
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
@@ -151,12 +120,25 @@ const EMPLOYEE = {
     navigate('/login')
   }
 
-  const todayRevenue = appointments.filter(a => a.status === 'done').reduce((s, a) => s + a.amount, 0)
+  async function handleChangePassword() {
+    if (newPwd.length < 6) { setPwdMsg('Minimum 6 characters required'); return }
+    if (newPwd !== confirmPwd) { setPwdMsg('Passwords do not match'); return }
+    setPwdLoading(true)
+    setPwdMsg('')
+    const { error } = await supabase.auth.updateUser({ password: newPwd })
+    if (error) { setPwdMsg(error.message); setPwdLoading(false); return }
+    setPwdMsg('✅ Password changed successfully!')
+    setNewPwd('')
+    setConfirmPwd('')
+    setPwdLoading(false)
+    setTimeout(() => { setShowPwdChange(false); setPwdMsg('') }, 2000)
+  }
+
   const servingNow = appointments.find(a => a.status === 'serving')
 
   return (
     <div style={E.app}>
-      {/* ── TOP BAR ── */}
+      {/* TOP BAR */}
       <div style={E.topbar}>
         <div style={E.topLeft}>
           <div style={E.brandLogo}>G</div>
@@ -171,7 +153,7 @@ const EMPLOYEE = {
         </div>
       </div>
 
-      {/* ── TODAY BANNER ── */}
+      {/* TODAY BANNER */}
       <div style={E.todayBanner}>
         <div>
           <div style={E.todayDate}>{TODAY_LABEL}</div>
@@ -183,7 +165,7 @@ const EMPLOYEE = {
         </button>
       </div>
 
-      {/* ── SERVING NOW ALERT ── */}
+      {/* SERVING NOW */}
       {servingNow && (
         <div style={E.servingAlert} onClick={() => setSelectedAppt(servingNow)}>
           <div style={E.servingDot} />
@@ -195,7 +177,7 @@ const EMPLOYEE = {
         </div>
       )}
 
-      {/* ── TABS ── */}
+      {/* TABS */}
       <div style={E.tabs}>
         {[
           { id: 'schedule', label: '📅 Schedule' },
@@ -209,10 +191,9 @@ const EMPLOYEE = {
         ))}
       </div>
 
-      {/* ── CONTENT ── */}
+      {/* CONTENT */}
       <div style={E.content}>
 
-        {/* SCHEDULE */}
         {tab === 'schedule' && (
           <div>
             <div style={E.sectionTitle}>Today's Appointments</div>
@@ -232,33 +213,25 @@ const EMPLOYEE = {
                       <span style={E.apptProgressText}>{done}/{appt.checklist.length} tasks</span>
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ ...E.statusBadge, background: s.bg, color: s.color }}>{s.label}</span>
-                  </div>
+                  <span style={{ ...E.statusBadge, background: s.bg, color: s.color }}>{s.label}</span>
                 </div>
               )
             })}
-            {appointments.length === 0 && (
-              <div style={E.empty}>No appointments today 🎉</div>
-            )}
           </div>
         )}
 
-        {/* EARNINGS */}
         {tab === 'earnings' && (
           <div>
             <div style={E.sectionTitle}>My Earnings — This Month</div>
             <div style={E.earningsCard}>
-              <div style={E.earningsMain}>
-                <div style={E.earningsLabel}>Net Salary</div>
-                <div style={E.earningsAmount}>₹{MY_EARNINGS.thisMonth.net.toLocaleString()}</div>
-                <div style={E.earningsSub}>{MY_EARNINGS.thisMonth.servicesCount} services · ₹{MY_EARNINGS.thisMonth.revenue.toLocaleString()} revenue</div>
-              </div>
+              <div style={E.earningsLabel}>Net Salary</div>
+              <div style={E.earningsAmount}>₹{MY_EARNINGS.thisMonth.net.toLocaleString()}</div>
+              <div style={E.earningsSub}>{MY_EARNINGS.thisMonth.servicesCount} services · ₹{MY_EARNINGS.thisMonth.revenue.toLocaleString()} revenue</div>
             </div>
             <div style={E.breakdownCard}>
               {[
                 { label: 'Base Salary', value: MY_EARNINGS.thisMonth.base, color: '#1A1208' },
-                { label: `Incentive (${EMPLOYEE.incentiveRate}% of ₹${MY_EARNINGS.thisMonth.revenue.toLocaleString()})`, value: MY_EARNINGS.thisMonth.incentive, color: '#0F6E56' },
+                { label: `Incentive (${EMPLOYEE.incentiveRate}%)`, value: MY_EARNINGS.thisMonth.incentive, color: '#0F6E56' },
                 { label: 'Advance Deduction', value: -MY_EARNINGS.thisMonth.advance, color: '#993C1D' },
               ].map(row => (
                 <div key={row.label} style={E.breakdownRow}>
@@ -282,13 +255,9 @@ const EMPLOYEE = {
                 </div>
               ))}
             </div>
-            <div style={E.requestAdvanceBtn}>
-              Request Salary Advance →
-            </div>
           </div>
         )}
 
-        {/* ATTENDANCE */}
         {tab === 'attendance' && (
           <div>
             <div style={E.sectionTitle}>This Month's Attendance</div>
@@ -322,13 +291,10 @@ const EMPLOYEE = {
                 </button>
               </div>
             </div>
-            <div style={E.attendanceNote}>
-              📍 GPS-verified attendance · Managed by owner
-            </div>
+            <div style={E.attendanceNote}>📍 GPS-verified attendance · Managed by owner</div>
           </div>
         )}
 
-        {/* MESSAGES */}
         {tab === 'messages' && (
           <div>
             <div style={E.sectionTitle}>Messages from Owner</div>
@@ -343,7 +309,8 @@ const EMPLOYEE = {
               ))}
             </div>
             <div style={E.messageInputRow}>
-              <input style={E.messageInput} placeholder="Reply to owner..." value={newMessage} onChange={e => setNewMessage(e.target.value)}
+              <input style={E.messageInput} placeholder="Reply to owner..." value={newMessage}
+                onChange={e => setNewMessage(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === 'Enter' && newMessage.trim()) {
                     setMessages(m => [...m, { id: Date.now(), from: 'Me', text: newMessage, time: 'Just now', read: true }])
@@ -357,16 +324,61 @@ const EMPLOYEE = {
                 }
               }}>Send</button>
             </div>
-            <div style={E.messageNote}>
-              🛡 You can only message the owner. Client contact details are not shared.
-            </div>
+            <div style={E.messageNote}>🛡 You can only message the owner. Client contact details are not shared.</div>
           </div>
         )}
       </div>
 
-      {/* Sign out */}
+      {/* FOOTER */}
       <div style={E.footer}>
-        <button style={E.signOutBtn} onClick={handleSignOut}>Sign Out</button>
+        {showPwdChange ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#1A1208' }}>🔑 Change Password</div>
+            <input
+              style={{ padding: '10px 12px', border: '1px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+              type="password"
+              placeholder="New password (min 6 chars)"
+              value={newPwd}
+              onChange={e => setNewPwd(e.target.value)}
+            />
+            <input
+              style={{ padding: '10px 12px', border: '1px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+              type="password"
+              placeholder="Confirm new password"
+              value={confirmPwd}
+              onChange={e => setConfirmPwd(e.target.value)}
+            />
+            {pwdMsg && (
+              <div style={{ fontSize: 12, color: pwdMsg.includes('✅') ? '#0F6E56' : '#C62828', padding: '6px 10px', background: pwdMsg.includes('✅') ? '#E1F5EE' : '#FFF0F0', borderRadius: 6 }}>
+                {pwdMsg}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                style={{ flex: 1, padding: '10px', background: '#8B3A52', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', opacity: pwdLoading ? 0.7 : 1 }}
+                onClick={handleChangePassword}
+                disabled={pwdLoading}
+              >
+                {pwdLoading ? 'Updating...' : 'Update Password'}
+              </button>
+              <button
+                style={{ flex: 1, padding: '10px', background: '#F8F5F0', color: '#6B6258', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+                onClick={() => { setShowPwdChange(false); setNewPwd(''); setConfirmPwd(''); setPwdMsg('') }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={{ ...E.signOutBtn, flex: 1, background: '#FDF0F3', color: '#8B3A52' }} onClick={() => setShowPwdChange(true)}>
+              🔑 Change Password
+            </button>
+            <button style={{ ...E.signOutBtn, flex: 1 }} onClick={handleSignOut}>
+              Sign Out
+            </button>
+          </div>
+        )}
       </div>
 
       {selectedAppt && (
@@ -376,7 +388,6 @@ const EMPLOYEE = {
   )
 }
 
-// ─── STYLES ───────────────────────────────────────────────────────────────────
 const ROSE = '#8B3A52', INK = '#1A1208', STONE = '#6B6258', MIST = '#F8F5F0'
 
 const E = {
@@ -394,7 +405,7 @@ const E = {
   todayStats: { fontSize: 11, color: STONE, marginTop: 2 },
   checkInBtn: { padding: '7px 14px', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
   servingAlert: { background: '#FDF0F3', border: '0.5px solid #E8B4C0', margin: '12px 16px', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' },
-  servingDot: { width: 10, height: 10, borderRadius: '50%', background: ROSE, animation: 'pulse 2s infinite', flexShrink: 0 },
+  servingDot: { width: 10, height: 10, borderRadius: '50%', background: ROSE, flexShrink: 0 },
   servingLabel: { fontSize: 10, color: STONE, textTransform: 'uppercase', letterSpacing: '0.5px' },
   servingService: { fontSize: 13, fontWeight: 500, color: INK, marginTop: 2 },
   servingArrow: { color: ROSE, fontSize: 16 },
@@ -412,9 +423,7 @@ const E = {
   apptProgressFill: { height: '100%', background: ROSE, borderRadius: 2 },
   apptProgressText: { fontSize: 10, color: STONE, whiteSpace: 'nowrap' },
   statusBadge: { fontSize: 10, padding: '3px 8px', borderRadius: 10, fontWeight: 500, display: 'inline-block' },
-  empty: { textAlign: 'center', color: '#B0A89F', padding: '40px 0', fontSize: 14 },
   earningsCard: { background: INK, borderRadius: 14, padding: '20px', marginBottom: 12, textAlign: 'center' },
-  earningsMain: {},
   earningsLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6 },
   earningsAmount: { fontFamily: "'Cormorant Garamond', serif", fontSize: 40, fontWeight: 600, color: '#F5DFA0' },
   earningsSub: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
@@ -425,7 +434,6 @@ const E = {
   weekCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 10, padding: '12px', textAlign: 'center' },
   weekLabel: { fontSize: 10, color: STONE, marginBottom: 4 },
   weekAmount: { fontSize: 15, fontWeight: 600, color: ROSE },
-  requestAdvanceBtn: { background: MIST, border: '0.5px solid #E8E0D8', borderRadius: 10, padding: '12px', textAlign: 'center', fontSize: 13, color: STONE, cursor: 'pointer' },
   attendanceGrid: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 14 },
   attendanceCard: { borderRadius: 10, padding: '12px', textAlign: 'center' },
   checkInCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 12, padding: '14px 16px', marginBottom: 10 },
@@ -446,7 +454,7 @@ const E = {
   sendBtn: { padding: '10px 16px', background: ROSE, color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
   messageNote: { fontSize: 11, color: '#B0A89F', textAlign: 'center' },
   footer: { padding: '12px 16px', borderTop: '0.5px solid #E8E0D8', background: '#fff' },
-  signOutBtn: { width: '100%', padding: '10px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
+  signOutBtn: { padding: '10px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
 }
 
 const D = {
