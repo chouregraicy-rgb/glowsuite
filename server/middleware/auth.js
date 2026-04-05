@@ -17,7 +17,6 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ error: "Missing token" });
     }
 
-    // Verify token with Supabase
     const { data, error } = await supabaseAdmin.auth.getUser(token);
 
     if (error) {
@@ -28,25 +27,43 @@ export async function requireAuth(req, res, next) {
     const user = data.user;
     console.log("[auth] user verified:", user.email);
 
-    // Look up role from staff table
-    const { data: profile, error: profileErr } = await supabaseAdmin
+    // 1. Check users table first (owners)
+    const { data: userProfile } = await supabaseAdmin
+      .from("users")
+      .select("role, salon_id")
+      .eq("id", user.id)
+      .single();
+
+    if (userProfile?.salon_id) {
+      req.user = {
+        id: user.id,
+        email: user.email,
+        role: userProfile.role || "owner",
+        salon_id: userProfile.salon_id,
+      };
+      console.log("[auth] req.user (owner):", req.user);
+      return next();
+    }
+
+    // 2. Fallback: check staff table (employees)
+    const { data: staffProfile, error: staffErr } = await supabaseAdmin
       .from("staff")
       .select("role, salon_id")
       .eq("auth_user_id", user.id)
       .single();
 
-    if (profileErr) {
-      console.log("[auth] profile lookup error:", profileErr.message);
+    if (staffErr) {
+      console.log("[auth] staff lookup error:", staffErr.message);
     }
 
     req.user = {
       id: user.id,
       email: user.email,
-      role: profile?.role || "employee",
-      salon_id: profile?.salon_id || null,
+      role: staffProfile?.role || "employee",
+      salon_id: staffProfile?.salon_id || null,
     };
 
-    console.log("[auth] req.user:", req.user);
+    console.log("[auth] req.user (staff):", req.user);
     next();
   } catch (err) {
     console.log("[auth] catch error:", err.message);
