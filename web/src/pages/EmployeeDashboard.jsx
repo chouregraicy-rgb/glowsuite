@@ -92,8 +92,6 @@ export default function EmployeeDashboard() {
   const [messages, setMessages] = useState(MESSAGES)
   const [unread] = useState(messages.filter(m => !m.read).length)
   const [time, setTime] = useState(new Date())
-
-  // Change password state
   const [showPwdChange, setShowPwdChange] = useState(false)
   const [newPwd, setNewPwd] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
@@ -138,7 +136,6 @@ export default function EmployeeDashboard() {
 
   return (
     <div style={E.app}>
-      {/* TOP BAR */}
       <div style={E.topbar}>
         <div style={E.topLeft}>
           <div style={E.brandLogo}>G</div>
@@ -153,7 +150,6 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      {/* TODAY BANNER */}
       <div style={E.todayBanner}>
         <div>
           <div style={E.todayDate}>{TODAY_LABEL}</div>
@@ -165,7 +161,6 @@ export default function EmployeeDashboard() {
         </button>
       </div>
 
-      {/* SERVING NOW */}
       {servingNow && (
         <div style={E.servingAlert} onClick={() => setSelectedAppt(servingNow)}>
           <div style={E.servingDot} />
@@ -177,7 +172,6 @@ export default function EmployeeDashboard() {
         </div>
       )}
 
-      {/* TABS */}
       <div style={E.tabs}>
         {[
           { id: 'schedule', label: '📅 Schedule' },
@@ -191,9 +185,7 @@ export default function EmployeeDashboard() {
         ))}
       </div>
 
-      {/* CONTENT */}
       <div style={E.content}>
-
         {tab === 'schedule' && (
           <div>
             <div style={E.sectionTitle}>Today's Appointments</div>
@@ -329,7 +321,6 @@ export default function EmployeeDashboard() {
         )}
       </div>
 
-      {/* FOOTER */}
       <div style={E.footer}>
         {showPwdChange ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
