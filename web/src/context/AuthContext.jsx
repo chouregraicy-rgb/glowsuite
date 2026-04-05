@@ -26,12 +26,37 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function fetchProfile(userId) {
-    const { data } = await supabase
+    // Try users table first (owners registered via signup)
+    const { data: userData } = await supabase
       .from('users')
       .select('*, salons(*)')
       .eq('id', userId)
       .single()
-    setProfile(data)
+
+    if (userData) {
+      setProfile(userData)
+      setLoading(false)
+      return
+    }
+
+    // Fallback: check staff table (employees added by owner)
+    const { data: staffData } = await supabase
+      .from('staff')
+      .select('*')
+      .eq('auth_user_id', userId)
+      .single()
+
+    if (staffData) {
+      setProfile({
+        id: staffData.auth_user_id,
+        name: staffData.name,
+        email: staffData.email,
+        role: staffData.role,
+        salon_id: staffData.salon_id,
+        salons: null,   // employees don't own a salon
+      })
+    }
+
     setLoading(false)
   }
 

@@ -3,6 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import LeadPipeline from './LeadPipeline'
+import ClientVault from './ClientVault'
+import Appointments from './Appointments'
+import ServiceCatalog from './ServiceCatalog'
+import StaffManager from './StaffManager'
+import Billing from './Billing'
+import BridalTimeline from './BridalTimeline'
+import Reports from './Reports'
+import Inventory from './Inventory'
 // ─── ICONS (inline SVG) ──────────────────────────────────────────────────────
 const Icon = ({ d, size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -40,6 +48,7 @@ const NAV = [
   { id: 'staff', label: 'Staff', icon: 'staff' },
   { id: 'billing', label: 'Billing', icon: 'billing' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory' },
+  { id: 'bridal', label: 'Bridal 👑', icon: 'shield' },
   { id: 'reports', label: 'Reports', icon: 'reports' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
@@ -298,7 +307,15 @@ export default function Dashboard() {
 
           {/* ── OTHER PAGES (placeholders) ── */}
           {active === 'leads' && <LeadPipeline />}
-{active !== 'dashboard' && active !== 'leads' && (
+          {active === 'clients' && <ClientVault />}
+          {active === 'appointments' && <Appointments />}
+          {active === 'settings' && <ServiceCatalog />}
+          {active === 'staff' && <StaffManager />}
+          {active === 'billing' && <Billing />}
+          {active === 'bridal' && <BridalTimeline />}
+          {active === 'reports' && <Reports />}
+          {active === 'inventory' && <Inventory />}
+          {active !== 'dashboard' && active !== 'leads' && active !== 'clients' && active !== 'appointments' && active !== 'settings' && active !== 'staff' && active !== 'billing' && active !== 'bridal' && active !== 'reports' &&  active !== 'inventory' && (
             <div style={S.placeholder}>
               <div style={S.placeholderIcon}>
                 <Icon d={ICONS[NAV.find(n => n.id === active)?.icon || 'dashboard']} size={40} />
