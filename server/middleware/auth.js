@@ -1,80 +1,56 @@
-import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-dotenv.config();
+const { createClient } = require('@supabase/supabase-js')
 
-const supabaseAdmin = createClient(
+// Use service-role client to verify tokens server-side
+const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { persistSession: false } }
-);
+  process.env.SUPABASE_SERVICE_KEY
+)
 
-export async function requireAuth(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.replace("Bearer ", "").trim();
+/**
+ * verifyToken — checks the Bearer JWT from the request header.
+ * Attaches req.user (Supabase auth user) and req.profile (users table row).
+ */
+async function verifyToken(req, res, next) {
+  const authHeader = req.headers.authorization || ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
 
-    if (!token || token === "undefined" || token === "null") {
-      return res.status(401).json({ error: "Missing token" });
-    }
-
-    const { data, error } = await supabaseAdmin.auth.getUser(token);
-
-    if (error) {
-      console.log("[auth] getUser error:", error.message);
-      return res.status(401).json({ error: "Invalid token" });
-    }
-
-    const user = data.user;
-    console.log("[auth] user verified:", user.email);
-
-    // 1. Check users table first (owners)
-    const { data: userProfile } = await supabaseAdmin
-      .from("users")
-      .select("role, salon_id")
-      .eq("id", user.id)
-      .single();
-
-    if (userProfile?.salon_id) {
-      req.user = {
-        id: user.id,
-        email: user.email,
-        role: userProfile.role || "owner",
-        salon_id: userProfile.salon_id,
-      };
-      console.log("[auth] req.user (owner):", req.user);
-      return next();
-    }
-
-    // 2. Fallback: check staff table (employees)
-    const { data: staffProfile, error: staffErr } = await supabaseAdmin
-      .from("staff")
-      .select("role, salon_id")
-      .eq("auth_user_id", user.id)
-      .single();
-
-    if (staffErr) {
-      console.log("[auth] staff lookup error:", staffErr.message);
-    }
-
-    req.user = {
-      id: user.id,
-      email: user.email,
-      role: staffProfile?.role || "employee",
-      salon_id: staffProfile?.salon_id || null,
-    };
-
-    console.log("[auth] req.user (staff):", req.user);
-    next();
-  } catch (err) {
-    console.log("[auth] catch error:", err.message);
-    next(err);
+  if (!token) {
+    return res.status(401).json({ error: 'Missing authorization token' })
   }
+
+  // Verify the JWT with Supabase
+  const { data: { user }, error } = await supabase.auth.getUser(token)
+
+  if (error || !user) {
+    return res.status(401).json({ error: 'Invalid or expired token' })
+  }
+
+  req.user = user
+
+  // Fetch the user's profile (role + salon_id)
+  const { data: profile, error: profileErr } = await supabase
+    .from('users')
+    .select('id, role, salon_id, name')
+    .eq('id', user.id)
+    .single()
+
+  if (profileErr || !profile) {
+    return res.status(403).json({ error: 'User profile not found' })
+  }
+
+  req.profile = profile
+  next()
 }
 
-export function requireOwner(req, res, next) {
-  if (req.user?.role !== "owner")
-    return res.status(403).json({ error: "Owner access required" });
-  next();
+/**
+ * ownerOnly — must be used AFTER verifyToken.
+ * Blocks employees from owner-only endpoints.
+ */
+function ownerOnly(req, res, next) {
+  if (req.profile?.role !== 'owner') {
+    return res.status(403).json({ error: 'Owner access required' })
+  }
+  next()
 }
 
-export { supabaseAdmin };
+module.exports = { verifyToken, ownerOnly, supabase }
