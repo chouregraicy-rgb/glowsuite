@@ -1,3 +1,4 @@
+import AttendanceManager from './AttendanceManager'
 import DashboardHome from './DashboardHome'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -47,6 +48,7 @@ const NAV = [
   { id: 'appointments', label: 'Appointments', icon: 'appointments' },
   { id: 'clients', label: 'Client Vault', icon: 'shield' },
   { id: 'staff', label: 'Staff', icon: 'staff' },
+  { id: 'attendance', label: 'Attendance', icon: ICONS.appointments },
   { id: 'billing', label: 'Billing', icon: 'billing' },
   { id: 'inventory', label: 'Inventory', icon: 'inventory' },
   { id: 'bridal', label: 'Bridal 👑', icon: 'shield' },
@@ -230,6 +232,7 @@ if (loading || !profile) {
           {active === 'appointments' && <Appointments />}
           {active === 'settings' && <ServiceCatalog />}
           {active === 'staff' && <StaffManager />}
+          {active === 'attendance' && <AttendanceManager />}
           {active === 'billing' && <Billing />}
           {active === 'bridal' && <BridalTimeline />}
           {active === 'reports' && <Reports />}
