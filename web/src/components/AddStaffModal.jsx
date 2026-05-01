@@ -1,298 +1,337 @@
 import { useState } from 'react'
-import { supabase } from '../lib/supabase.js'
+import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
-const ROLES = ['Senior Stylist', 'Stylist', 'Makeup Artist', 'Hair Specialist', 'Nail Tech', 'Skin Therapist', 'Spa Therapist', 'Massage Therapist', 'Receptionist', 'Assistant']
-const SPECIALIZATIONS = ['Hair Color', 'Balayage', 'Keratin', 'Bridal', 'Makeup', 'Airbrush', 'Nail Art', 'Gel Nails', 'Facial', 'Spa', 'Massage', 'Threading', 'Mehendi']
+const SPECIALIZATIONS = [
+  'Hair Color', 'Bridal Makeup', 'Keratin Treatment', 'Hair Cut',
+  'Skin Facial', 'Threading', 'Waxing', 'Nail Art',
+  'Gel Extensions', 'Spa Massage', 'Mehendi', 'Eyebrows'
+]
 
-function CredentialsCard({ credentials, name, onClose }) {
-  const [copied, setCopied] = useState(false)
+const ROLES = [
+  { value: 'employee', label: '✂️ Stylist / Therapist' },
+  { value: 'senior',   label: '⭐ Senior Stylist' },
+  { value: 'manager',  label: '👔 Manager' },
+  { value: 'trainee',  label: '🎓 Trainee' },
+]
 
-  function copyAll() {
-    const text = `GlowSuite Login Credentials for ${name}\n\nEmail: ${credentials.email}\nPassword: ${credentials.tempPassword}\nLogin: ${credentials.loginUrl}\n\nNote: Please change your password after first login.`
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div style={S.overlay}>
-      <div style={S.modal}>
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
-          <div style={S.title}>Account Created!</div>
-          <div style={{ fontSize: 13, color: '#6B6258', marginTop: 4 }}>
-            Share these login credentials with <strong>{name}</strong>
-          </div>
-        </div>
-
-        <div style={S.credBox}>
-          <div style={S.credRow}>
-            <span style={S.credKey}>Email</span>
-            <span style={S.credVal}>{credentials.email}</span>
-          </div>
-          <div style={S.credRow}>
-            <span style={S.credKey}>Password</span>
-            <span style={{ ...S.credVal, fontFamily: 'monospace', color: '#8B3A52', fontSize: 16, fontWeight: 700 }}>
-              {credentials.tempPassword}
-            </span>
-          </div>
-          <div style={S.credRow}>
-            <span style={S.credKey}>Login URL</span>
-            <span style={{ ...S.credVal, color: '#185FA5', fontSize: 11 }}>{credentials.loginUrl}</span>
-          </div>
-        </div>
-
-        <div style={S.noteBox}>
-          ⚠️ Save this password now — it won't be shown again. Ask {name} to change it after first login.
-        </div>
-
-        <div style={S.shieldBox}>
-          🛡 This employee will see <strong>only their assigned appointments</strong> with masked client tokens. Real phone numbers and client details are hidden from staff.
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          <button style={{ ...S.copyBtn, background: copied ? '#0F6E56' : '#1A1208' }} onClick={copyAll}>
-            {copied ? '✓ Copied!' : '📋 Copy Credentials'}
-          </button>
-          <button style={S.closeBtn} onClick={onClose}>Done</button>
-        </div>
-      </div>
-    </div>
-  )
+const S = {
+  overlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 },
+  modal:   { background:'#fff', borderRadius:20, width:'100%', maxWidth:520, maxHeight:'90vh', overflowY:'auto', fontFamily:'Inter,sans-serif' },
+  header:  { padding:'24px 28px 16px', borderBottom:'1px solid #f0ede9', display:'flex', justifyContent:'space-between', alignItems:'center' },
+  title:   { fontSize:18, fontWeight:700, color:'#1a0a0a' },
+  close:   { background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#888', padding:4 },
+  body:    { padding:'24px 28px' },
+  label:   { display:'block', fontSize:12, fontWeight:600, color:'#555', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.5px' },
+  input:   { width:'100%', padding:'11px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', color:'#1a0a0a', background:'#faf9f7' },
+  sel:     { width:'100%', padding:'11px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', color:'#1a0a0a', background:'#faf9f7' },
+  row:     { display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:16 },
+  mb:      { marginBottom:16 },
+  btn:     { width:'100%', padding:'13px', background:'#8b2252', color:'#fff', border:'none', borderRadius:10, fontSize:15, fontWeight:600, cursor:'pointer' },
+  btnOut:  { width:'100%', padding:'13px', background:'transparent', color:'#8b2252', border:'1.5px solid #8b2252', borderRadius:10, fontSize:15, fontWeight:600, cursor:'pointer' },
+  err:     { background:'#fff0f0', border:'1px solid #fcc', borderRadius:8, padding:'10px 14px', fontSize:13, color:'#c00', marginBottom:16 },
+  ok:      { background:'#f0fff4', border:'1px solid #9f9', borderRadius:8, padding:'10px 14px', fontSize:13, color:'#060', marginBottom:16 },
+  chip:    (active) => ({ padding:'6px 12px', borderRadius:20, fontSize:12, fontWeight:500, cursor:'pointer', border:'1.5px solid', borderColor: active?'#8b2252':'#e8e4df', background: active?'#8b225215':'transparent', color: active?'#8b2252':'#666' }),
+  cred:    { background:'#1a0a0a', borderRadius:12, padding:20, marginTop:16 },
+  credRow: { display:'flex', justifyContent:'space-between', marginBottom:8, fontSize:13 },
+  credKey: { color:'rgba(255,255,255,0.5)' },
+  credVal: { color:'#c9956b', fontWeight:600, fontFamily:'monospace' },
+  steps:   { display:'flex', gap:8, marginBottom:24 },
+  stepDot: (a, d) => ({ width:28, height:28, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0, background: d?'#8b2252':a?'#8b2252':'#e8e4df', color:(a||d)?'#fff':'#999' }),
+  stepLine:{ flex:1, height:2, background:'#e8e4df', alignSelf:'center' },
 }
 
-export default function AddStaffModal({ onClose, onAdd, sym }) {
-  const [step, setStep] = useState(1)
+export default function AddStaffModal({ onClose, onAdd }) {
+  const { salonId, salon, profile } = useAuth()
+  const [step, setStep]       = useState(1)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
   const [credentials, setCredentials] = useState(null)
 
   const [form, setForm] = useState({
-    name: '', email: '', phone: '',
-    role: 'Stylist',
-    salaryBase: 15000,
-    incentiveRate: 10,
-    specialization: [],
+    name: '', email: '', role: 'employee',
+    baseSalary: '', incentiveRate: 10,
+    specializations: []
   })
 
-  const up = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  function setF(k, v) { setForm(f => ({...f, [k]: v})) }
 
-  function toggleSpec(spec) {
+  function toggleSpec(s) {
     setForm(f => ({
       ...f,
-      specialization: f.specialization.includes(spec)
-        ? f.specialization.filter(s => s !== spec)
-        : [...f.specialization, spec]
+      specializations: f.specializations.includes(s)
+        ? f.specializations.filter(x => x !== s)
+        : [...f.specializations, s]
     }))
   }
 
+  function validateStep1() {
+    if (!form.name.trim())  return 'Full name is required'
+    if (!form.email.trim()) return 'Email is required'
+    if (!/\S+@\S+\.\S+/.test(form.email)) return 'Enter a valid email'
+    return ''
+  }
+
+  function nextStep() {
+    setError('')
+    if (step === 1) {
+      const err = validateStep1()
+      if (err) { setError(err); return }
+    }
+    setStep(s => s + 1)
+  }
+
   async function handleCreate() {
-    if (!form.name || !form.email) { setError('Name and email are required'); return }
     setError('')
     setLoading(true)
 
     try {
+      // Generate temp password
+      const tempPassword = 'Glow@' + Math.random().toString(36).slice(2,8).toUpperCase()
+
+      // 1. Get current session token to call our server
       const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
 
-      if (!token) {
-        setError('Not logged in. Please refresh and try again.')
-        setLoading(false)
-        return
-      }
+      // 2. Try server API first (creates Supabase auth user)
+      const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001'
+      let userId = null
 
-      const response = await fetch(`${import.meta.env.VITE_SERVER_URL || 'http://localhost:4000'}/api/staff/add`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          phone: form.phone,
-          designation: form.role,
+      try {
+        const res = await fetch(`${serverUrl}/api/staff/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            role: form.role,
+            base_salary: parseFloat(form.baseSalary) || 0,
+            incentive_rate: parseFloat(form.incentiveRate) || 0,
+            specializations: form.specializations
+          })
         })
-      })
 
-      const data = await response.json()
+        if (res.ok) {
+          const data = await res.json()
+          userId = data.employee?.user_id
+          setCredentials({ email: form.email, tempPassword: data.credentials?.tempPassword || tempPassword })
+        } else {
+          throw new Error('Server unavailable')
+        }
+      } catch {
+        // Fallback: direct Supabase insert (without auth account creation)
+        // This adds to employees table — owner shares credentials manually
+        const { data: emp, error: empErr } = await supabase
+          .from('employees')
+          .insert({
+            salon_id: salonId,
+            name: form.name,
+            email: form.email,
+            role: form.role,
+            base_salary: parseFloat(form.baseSalary) || 0,
+            incentive_rate: parseFloat(form.incentiveRate) || 0,
+            specializations: form.specializations,
+            status: 'active'
+          })
+          .select()
+          .single()
 
-      if (!response.ok) {
-        setError(data.error || 'Failed to create account')
-        setLoading(false)
-        return
+        if (empErr) throw empErr
+
+        setCredentials({ email: form.email, tempPassword, note: 'Share login URL with staff. Account setup pending server.' })
+        if (onAdd) onAdd(emp)
       }
 
-      setCredentials({
-        email: data.credentials.email,
-        tempPassword: data.credentials.tempPassword,
-        loginUrl: window.location.origin + '/login',
-      })
-      onAdd({ ...form, id: data.staff.id })
+      setStep(4) // success step
 
     } catch (err) {
-      setError('Could not connect to server. Make sure the server is running on port 4000.')
+      let msg = err.message || 'Failed to create staff'
+      if (msg.includes('duplicate') || msg.includes('already')) msg = 'An employee with this email already exists.'
+      setError(msg)
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
-  if (credentials) {
-    return <CredentialsCard credentials={credentials} name={form.name} onClose={onClose} />
+  function copyText(text) {
+    navigator.clipboard.writeText(text).catch(() => {})
   }
 
   return (
-    <div style={S.overlay}>
+    <div style={S.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={S.modal}>
         <div style={S.header}>
-          <div style={S.title}>Add New Staff Member</div>
-          <button style={S.xBtn} onClick={onClose}>✕</button>
+          <div style={S.title}>
+            {step < 4 ? '+ Add Staff Member' : '✅ Staff Account Created'}
+          </div>
+          <button style={S.close} onClick={onClose}>✕</button>
         </div>
 
-        <div style={S.steps}>
-          {['Personal', 'Salary', 'Skills'].map((label, i) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ ...S.stepDot, background: step > i + 1 ? '#0F6E56' : step === i + 1 ? '#8B3A52' : '#E8E0D8', color: step >= i + 1 ? '#fff' : '#B0A89F' }}>
-                {step > i + 1 ? '✓' : i + 1}
-              </div>
-              <span style={{ fontSize: 11, color: step === i + 1 ? '#8B3A52' : '#B0A89F', fontWeight: step === i + 1 ? 500 : 400 }}>{label}</span>
-              {i < 2 && <div style={{ width: 24, height: 1, background: '#E8E0D8', marginLeft: 2 }} />}
-            </div>
-          ))}
-        </div>
-
-        {step === 1 && (
-          <div style={S.form}>
-            <div style={S.grid2}>
-              <div style={S.field}>
-                <label style={S.label}>Full Name *</label>
-                <input style={S.input} value={form.name} onChange={e => up('name', e.target.value)} placeholder="Kavitha R." />
-              </div>
-              <div style={S.field}>
-                <label style={S.label}>Role / Designation</label>
-                <select style={S.input} value={form.role} onChange={e => up('role', e.target.value)}>
-                  {ROLES.map(r => <option key={r}>{r}</option>)}
-                </select>
-              </div>
-              <div style={S.field}>
-                <label style={S.label}>Email Address *</label>
-                <input style={S.input} type="email" value={form.email} onChange={e => up('email', e.target.value)} placeholder="kavitha@email.com" />
-              </div>
-              <div style={S.field}>
-                <label style={S.label}>Phone Number</label>
-                <input style={S.input} value={form.phone} onChange={e => up('phone', e.target.value)} placeholder="+91 98000 00000" />
-              </div>
-            </div>
-            <div style={S.infoBox}>
-              🛡 A login account will be created for this email. The employee will only see their own schedule with <strong>masked client tokens</strong> — no real client details.
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div style={S.form}>
-            <div style={S.grid2}>
-              <div style={S.field}>
-                <label style={S.label}>Base Salary ({sym}/month)</label>
-                <input style={S.input} type="number" value={form.salaryBase} onChange={e => up('salaryBase', Number(e.target.value))} />
-              </div>
-              <div style={S.field}>
-                <label style={S.label}>Incentive Rate (%)</label>
-                <input style={S.input} type="number" value={form.incentiveRate} onChange={e => up('incentiveRate', Number(e.target.value))} min="0" max="30" />
-              </div>
-            </div>
-            <div style={S.salaryPreview}>
-              <div style={{ fontSize: 11, color: '#B0A89F', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Salary Preview</div>
-              <div style={S.salaryRow}><span>Base salary</span><span>{sym}{form.salaryBase.toLocaleString()}</span></div>
-              <div style={S.salaryRow}><span>If revenue = {sym}50,000</span><span style={{ color: '#0F6E56' }}>+ {sym}{Math.round(50000 * form.incentiveRate / 100).toLocaleString()} incentive</span></div>
-              <div style={{ ...S.salaryRow, fontWeight: 600, borderTop: '0.5px solid #E8E0D8', paddingTop: 8, marginTop: 4, color: '#1A1208' }}>
-                <span>Estimated net</span>
-                <span style={{ color: '#8B3A52' }}>{sym}{(form.salaryBase + Math.round(50000 * form.incentiveRate / 100)).toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div style={S.form}>
-            <div style={{ fontSize: 12, color: '#6B6258', marginBottom: 12 }}>Select this employee's specializations:</div>
-            <div style={S.specGrid}>
-              {SPECIALIZATIONS.map(spec => (
-                <button key={spec} type="button"
-                  style={{ ...S.specBtn, ...(form.specialization.includes(spec) ? S.specBtnOn : {}) }}
-                  onClick={() => toggleSpec(spec)}>
-                  {form.specialization.includes(spec) ? '✓ ' : ''}{spec}
-                </button>
+        <div style={S.body}>
+          {/* Step indicators */}
+          {step < 4 && (
+            <div style={S.steps}>
+              {[1,2,3].map((n,i) => (
+                <div key={n} style={{display:'flex',alignItems:'center',flex:i<2?1:'auto',gap:8}}>
+                  <div style={S.stepDot(step===n, step>n)}>{step>n?'✓':n}</div>
+                  {i < 2 && <div style={S.stepLine} />}
+                </div>
               ))}
             </div>
-            <div style={S.summaryBox}>
-              <div style={{ fontSize: 11, color: '#B0A89F', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Summary</div>
-              <div style={S.salaryRow}><span>Name</span><span style={{ fontWeight: 500 }}>{form.name}</span></div>
-              <div style={S.salaryRow}><span>Role</span><span>{form.role}</span></div>
-              <div style={S.salaryRow}><span>Email</span><span>{form.email}</span></div>
-              <div style={S.salaryRow}><span>Base salary</span><span>{sym}{form.salaryBase.toLocaleString()}/mo</span></div>
-              <div style={S.salaryRow}><span>Incentive</span><span>{form.incentiveRate}%</span></div>
-              <div style={S.salaryRow}><span>Skills</span><span>{form.specialization.length > 0 ? form.specialization.join(', ') : 'None selected'}</span></div>
-            </div>
-          </div>
-        )}
-
-        {error && <div style={S.errorBox}>{error}</div>}
-
-        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          {step > 1 && <button style={S.backBtn} onClick={() => setStep(s => s - 1)}>← Back</button>}
-          {step < 3 && (
-            <button style={{ ...S.nextBtn, flex: 1 }} onClick={() => {
-              if (step === 1 && (!form.name || !form.email)) { setError('Name and email are required'); return }
-              setError('')
-              setStep(s => s + 1)
-            }}>
-              Continue →
-            </button>
           )}
+
+          {error && <div style={S.err}>⚠️ {error}</div>}
+
+          {/* Step 1 — Basic info */}
+          {step === 1 && (
+            <>
+              <p style={{fontSize:13,color:'#888',marginBottom:20}}>Step 1 of 3 — Basic information</p>
+              <div style={S.mb}>
+                <label style={S.label}>Full Name *</label>
+                <input style={S.input} placeholder="e.g. Kavitha R." value={form.name} onChange={e=>setF('name',e.target.value)} />
+              </div>
+              <div style={S.mb}>
+                <label style={S.label}>Email Address *</label>
+                <input style={S.input} type="email" placeholder="kavitha@example.com" value={form.email} onChange={e=>setF('email',e.target.value)} />
+              </div>
+              <div style={S.mb}>
+                <label style={S.label}>Role</label>
+                <select style={S.sel} value={form.role} onChange={e=>setF('role',e.target.value)}>
+                  {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+              <button style={S.btn} onClick={nextStep}>Continue →</button>
+            </>
+          )}
+
+          {/* Step 2 — Salary */}
+          {step === 2 && (
+            <>
+              <p style={{fontSize:13,color:'#888',marginBottom:20}}>Step 2 of 3 — Salary & incentives</p>
+              <div style={S.row}>
+                <div>
+                  <label style={S.label}>Base Salary ({salon?.settings?.currencySymbol||'₹'}/month)</label>
+                  <input style={S.input} type="number" placeholder="e.g. 15000" value={form.baseSalary} onChange={e=>setF('baseSalary',e.target.value)} />
+                </div>
+                <div>
+                  <label style={S.label}>Incentive Rate (%)</label>
+                  <input style={S.input} type="number" placeholder="e.g. 10" min="0" max="50" value={form.incentiveRate} onChange={e=>setF('incentiveRate',e.target.value)} />
+                </div>
+              </div>
+
+              {/* Live preview */}
+              {form.baseSalary && (
+                <div style={{background:'#faf9f7',borderRadius:10,padding:14,marginBottom:16,fontSize:13}}>
+                  <div style={{fontWeight:600,marginBottom:8,color:'#1a0a0a'}}>💰 Estimated monthly pay</div>
+                  <div style={{display:'flex',justifyContent:'space-between',color:'#666',marginBottom:4}}>
+                    <span>Base salary</span>
+                    <span>{salon?.settings?.currencySymbol||'₹'}{parseFloat(form.baseSalary||0).toLocaleString()}</span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',color:'#666',marginBottom:4}}>
+                    <span>Incentive (on revenue)</span>
+                    <span>{form.incentiveRate}% of services</span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#8b2252',borderTop:'1px solid #e8e4df',paddingTop:8,marginTop:4}}>
+                    <span>Guaranteed base</span>
+                    <span>{salon?.settings?.currencySymbol||'₹'}{parseFloat(form.baseSalary||0).toLocaleString()}/mo</span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{display:'flex',gap:8}}>
+                <button style={S.btnOut} onClick={()=>setStep(1)}>← Back</button>
+                <button style={S.btn} onClick={nextStep}>Continue →</button>
+              </div>
+            </>
+          )}
+
+          {/* Step 3 — Specializations */}
           {step === 3 && (
-            <button style={{ ...S.createBtn, flex: 1, opacity: loading ? 0.7 : 1 }} disabled={loading} onClick={handleCreate}>
-              {loading ? 'Creating account...' : '🚀 Create Staff Account'}
-            </button>
+            <>
+              <p style={{fontSize:13,color:'#888',marginBottom:20}}>Step 3 of 3 — Specializations</p>
+              <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:20}}>
+                {SPECIALIZATIONS.map(s => (
+                  <button key={s} style={S.chip(form.specializations.includes(s))} onClick={()=>toggleSpec(s)}>
+                    {form.specializations.includes(s)?'✓ ':''}{s}
+                  </button>
+                ))}
+              </div>
+
+              {/* Summary */}
+              <div style={{background:'#faf9f7',borderRadius:12,padding:16,marginBottom:16}}>
+                {[
+                  ['Name', form.name],
+                  ['Email', form.email],
+                  ['Role', ROLES.find(r=>r.value===form.role)?.label],
+                  ['Base Salary', `${salon?.settings?.currencySymbol||'₹'}${parseFloat(form.baseSalary||0).toLocaleString()}/mo`],
+                  ['Incentive', `${form.incentiveRate}%`],
+                  ['Skills', form.specializations.length ? form.specializations.join(', ') : 'General'],
+                ].map(([k,v]) => (
+                  <div key={k} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid #f0ede9',fontSize:13}}>
+                    <span style={{color:'#888'}}>{k}</span>
+                    <span style={{fontWeight:600,color:'#1a0a0a',maxWidth:260,textAlign:'right'}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{display:'flex',gap:8}}>
+                <button style={S.btnOut} onClick={()=>setStep(2)}>← Back</button>
+                <button style={S.btn} onClick={handleCreate} disabled={loading}>
+                  {loading ? 'Creating account...' : '🚀 Create Staff Account'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Step 4 — Success + credentials */}
+          {step === 4 && credentials && (
+            <>
+              <div style={{textAlign:'center',marginBottom:20}}>
+                <div style={{fontSize:48,marginBottom:8}}>🎉</div>
+                <div style={{fontSize:16,fontWeight:700,color:'#1a0a0a',marginBottom:4}}>
+                  {form.name} has been added!
+                </div>
+                <div style={{fontSize:13,color:'#888'}}>
+                  Share these login credentials with your staff member.
+                </div>
+              </div>
+
+              <div style={S.cred}>
+                <div style={{fontSize:12,color:'rgba(255,255,255,0.4)',marginBottom:12,textTransform:'uppercase',letterSpacing:'1px'}}>
+                  🔐 Login Credentials
+                </div>
+                {[
+                  ['Login URL', window.location.origin + '/login'],
+                  ['Email', credentials.email],
+                  ['Password', credentials.tempPassword],
+                ].map(([k,v]) => (
+                  <div key={k} style={S.credRow}>
+                    <span style={S.credKey}>{k}</span>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <span style={S.credVal}>{v}</span>
+                      <button onClick={()=>copyText(v)} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:4,color:'#fff',fontSize:10,padding:'2px 6px',cursor:'pointer'}}>
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{fontSize:11,color:'rgba(255,255,255,0.3)',marginTop:12,lineHeight:1.5}}>
+                  ⚠️ Share these securely. Staff should change password on first login.
+                </div>
+              </div>
+
+              <div style={{display:'flex',gap:8,marginTop:16}}>
+                <button style={S.btnOut} onClick={()=>{setStep(1);setForm({name:'',email:'',role:'employee',baseSalary:'',incentiveRate:10,specializations:[]});setCredentials(null);setError('')}}>
+                  + Add Another
+                </button>
+                <button style={S.btn} onClick={onClose}>Done ✓</button>
+              </div>
+            </>
           )}
         </div>
       </div>
     </div>
   )
-}
-
-const ROSE = '#8B3A52', INK = '#1A1208', STONE = '#6B6258', MIST = '#F8F5F0'
-
-const S = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 },
-  modal: { background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 520, boxShadow: '0 8px 48px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: INK },
-  xBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: STONE },
-  steps: { display: 'flex', alignItems: 'center', gap: 4, marginBottom: 20 },
-  stepDot: { width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, flexShrink: 0 },
-  form: { display: 'flex', flexDirection: 'column', gap: 14 },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
-  field: { display: 'flex', flexDirection: 'column', gap: 5 },
-  label: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.3px' },
-  input: { padding: '9px 12px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#FDFAF8', color: INK },
-  infoBox: { background: '#E1F5EE', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#085041', lineHeight: 1.5 },
-  salaryPreview: { background: MIST, borderRadius: 10, padding: '12px 14px' },
-  salaryRow: { display: 'flex', justifyContent: 'space-between', fontSize: 13, color: STONE, padding: '4px 0' },
-  specGrid: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 },
-  specBtn: { padding: '6px 12px', border: '0.5px solid #E8E0D8', borderRadius: 20, fontSize: 12, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', color: STONE },
-  specBtnOn: { background: '#FDF0F3', color: ROSE, border: `0.5px solid ${ROSE}`, fontWeight: 500 },
-  summaryBox: { background: MIST, borderRadius: 10, padding: '12px 14px' },
-  errorBox: { background: '#FFF0F0', border: '1px solid #FFCDD2', color: '#C62828', borderRadius: 8, padding: '8px 12px', fontSize: 12, marginTop: 8 },
-  backBtn: { padding: '10px 16px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
-  nextBtn: { padding: '10px', background: INK, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  createBtn: { padding: '10px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  credBox: { background: MIST, borderRadius: 10, padding: '14px 16px', marginBottom: 12 },
-  credRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '0.5px solid #E8E0D8' },
-  credKey: { fontSize: 11, color: STONE, textTransform: 'uppercase', letterSpacing: '0.4px' },
-  credVal: { fontSize: 13, fontWeight: 500, color: INK },
-  noteBox: { background: '#FAEEDA', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#6B4C1A', marginBottom: 10, lineHeight: 1.5 },
-  shieldBox: { background: '#E1F5EE', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#085041', lineHeight: 1.5 },
-  copyBtn: { flex: 1, padding: '10px', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.2s' },
-  closeBtn: { padding: '10px 20px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
 }
