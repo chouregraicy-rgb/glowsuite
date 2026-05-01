@@ -1,3 +1,4 @@
+import DashboardHome from './DashboardHome'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -221,98 +222,7 @@ if (loading || !profile) {
         {/* ── CONTENT ── */}
         <div style={S.content}>
 
-          {active === 'dashboard' && (
-            <>
-              {/* Stats */}
-              <div style={S.statsGrid}>
-                {stats.map((s, i) => <StatCard key={s.label} {...s} delay={i * 80} />)}
-              </div>
-
-              <div style={S.twoCol}>
-                {/* Today's Appointments */}
-                <div style={S.card}>
-                  <div style={S.cardHeader}>
-                    <div style={S.cardTitle}>Today's appointments</div>
-                    <button style={S.linkBtn} onClick={() => setActive('appointments')}>View all →</button>
-                  </div>
-                  {MOCK_APPOINTMENTS.map(a => (
-                    <div key={a.token} style={S.apptRow}>
-                      <div style={S.apptToken}>{a.token}</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={S.apptService}>{a.service}</div>
-                        <div style={S.apptEmployee}>✂️ {a.employee}</div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={S.apptTime}>{a.time}</div>
-                        <Badge status={a.status} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Lead Activity */}
-                <div style={S.card}>
-                  <div style={S.cardHeader}>
-                    <div style={S.cardTitle}>Lead activity</div>
-                    <button style={S.linkBtn} onClick={() => setActive('leads')}>Pipeline →</button>
-                  </div>
-                  {MOCK_LEADS.map(l => (
-                    <div key={l.name} style={S.leadRow}>
-                      <div style={S.leadAvatar}>{l.name[0]}</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={S.leadName}>{l.name}</div>
-                        <div style={S.leadSource}>{SOURCE_EMOJI[l.source]} {l.source}</div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <Badge status={l.status} />
-                        <div style={S.leadTime}>{l.time}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Staff Overview */}
-              <div style={S.card}>
-                <div style={S.cardHeader}>
-                  <div style={S.cardTitle}>Staff on duty today</div>
-                  <button style={S.linkBtn} onClick={() => setActive('staff')}>Manage staff →</button>
-                </div>
-                <div style={S.staffGrid}>
-                  {MOCK_STAFF.map(emp => (
-                    <div key={emp.name} style={S.staffCard}>
-                      <div style={S.staffAvatar}>
-                        {emp.name.split(' ').map(n => n[0]).join('')}
-                      </div>
-                      <div style={S.staffName}>{emp.name}</div>
-                      <div style={S.staffRole}>{emp.role}</div>
-                      <Badge status={emp.status} />
-                      <div style={S.staffStats}>
-                        <span>{emp.clients} clients</span>
-                        <span style={{ color: '#0F6E56', fontWeight: 500 }}>{emp.earnings}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Quick actions */}
-              <div style={S.quickGrid}>
-                {[
-                  { label: 'Add New Client', icon: '🛡', desc: 'Register with phone masking', page: 'clients' },
-                  { label: 'New Lead', icon: '📊', desc: 'Capture from any source', page: 'leads' },
-                  { label: 'Create Invoice', icon: '💳', desc: 'Bill & collect payment', page: 'billing' },
-                  { label: 'Bridal Booking', icon: '👑', desc: 'Full bridal timeline', page: 'appointments' },
-                ].map(q => (
-                  <button key={q.label} style={S.quickCard} onClick={() => setActive(q.page)}>
-                    <span style={{ fontSize: 24 }}>{q.icon}</span>
-                    <div style={S.quickLabel}>{q.label}</div>
-                    <div style={S.quickDesc}>{q.desc}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          {active === 'dashboard' && <DashboardHome sym={currencySymbol} />}
 
           {/* ── OTHER PAGES (placeholders) ── */}
           {active === 'leads' && <LeadPipeline />}
