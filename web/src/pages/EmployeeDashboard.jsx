@@ -68,59 +68,58 @@ export default function EmployeeDashboard() {
 
   // ─── Fetch everything ────────────────────────────────────────
   useEffect(() => {
-    if (user?.id) fetchAll();
-  }, [user]);
+    if (user?.id) fetchAll()
+  }, [user])
 
   async function fetchAll() {
-    setLoading(true);
+    setLoading(true)
     try {
-      // Find staff profile by user id
-      const { data: staffData } = await supabase
-        .from("staff")
-        .select("*")
-        .eq("salon_id", SALON_ID)
-        .eq("user_id", user.id)
-        .maybeSingle();
+      // Find staff profile — check employees table (not staff)
+      const { data: empData } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('salon_id', SALON_ID)
+        .eq('user_id', user.id)
+        .maybeSingle()
 
-      // Fallback: match by email if user_id column doesn't exist
-      let staff = staffData;
+      // Fallback: match by email
+      let staff = empData
       if (!staff) {
         const { data: byEmail } = await supabase
-          .from("staff")
-          .select("*")
-          .eq("salon_id", SALON_ID)
-          .eq("email", user.email)
-          .maybeSingle();
-        staff = byEmail;
+          .from('employees')
+          .select('*')
+          .eq('salon_id', SALON_ID)
+          .eq('email', user.email)
+          .maybeSingle()
+        staff = byEmail
       }
 
-      setStaffProfile(staff);
-      if (!staff) { setLoading(false); return; }
+      setStaffProfile(staff)
+      if (!staff) { setLoading(false); return }
 
-      const staffId = staff.id;
-      const today   = todayStr();
+      const staffId = staff.id
+      const today   = todayStr()
 
-      // Parallel fetch
       const [apptRes, clientRes, attRes, invRes] = await Promise.all([
-        supabase.from("appointments").select("*").eq("salon_id", SALON_ID).eq("staff_id", staffId).order("scheduled_at"),
-        supabase.from("clients").select("id, name, phone_encrypted, tags, hair_type, skin_type, created_at").eq("salon_id", SALON_ID).eq("assigned_staff_id", staffId).order("name"),
-        supabase.from("attendance").select("*").eq("salon_id", SALON_ID).eq("staff_id", staffId).order("date", { ascending: false }).limit(30),
-        supabase.from("invoices").select("*").eq("salon_id", SALON_ID).eq("staff_id", staffId).order("created_at", { ascending: false }),
-      ]);
+        supabase.from('appointments').select('*').eq('salon_id', SALON_ID).eq('staff_id', staffId).order('scheduled_at'),
+        supabase.from('clients').select('id, name, phone_encrypted, tags, hair_type, skin_type, created_at, assigned_at').eq('salon_id', SALON_ID).eq('assigned_staff_id', staffId).order('name'),
+        supabase.from('attendance').select('*').eq('salon_id', SALON_ID).eq('staff_id', staffId).order('date', { ascending: false }).limit(30),
+        supabase.from('invoices').select('*').eq('salon_id', SALON_ID).eq('staff_id', staffId).order('created_at', { ascending: false }),
+      ])
 
-      const appts = apptRes.data || [];
-      setAllAppts(appts);
-      setTodayAppts(appts.filter(a => (a.scheduled_at || a.created_at || "").slice(0, 10) === today));
-      setMyClients(clientRes.data || []);
+      const appts = apptRes.data || []
+      setAllAppts(appts)
+      setTodayAppts(appts.filter(a => (a.scheduled_at || a.created_at || '').slice(0,10) === today))
+      setMyClients(clientRes.data || [])
 
-      const attList = attRes.data || [];
-      setAttendance(attList);
-      setTodayAtt(attList.find(a => a.date === today) || null);
-      setMyInvoices(invRes.data || []);
+      const attList = attRes.data || []
+      setAttendance(attList)
+      setTodayAtt(attList.find(a => a.date === today) || null)
+      setMyInvoices(invRes.data || [])
     } catch (e) {
-      console.error("Employee dashboard error:", e);
+      console.error('Employee dashboard error:', e)
     }
-    setLoading(false);
+    setLoading(false)
   }
 
   // ─── Check In / Out ──────────────────────────────────────────
@@ -261,12 +260,12 @@ export default function EmployeeDashboard() {
         </div>
       </div>
 
-      {/* ── Tabs ── */}
+      {/* Tabs */}
       <div style={E.tabRow}>
         {[
           ["home",        "🏠 Home"],
           ["schedule",    `📅 Schedule${todayAppts.length ? ` (${todayAppts.length})` : ""}`],
-          ["clients",     `👥 My Clients (${totalClients})`],
+          ["clients",     `👥 My Clients (${totalClients})${myClients.filter(c => { const d = c.assigned_at || c.created_at; return d && (new Date() - new Date(d)) / 86400000 <= 7 }).length > 0 ? ' 🔴' : ''}`],
           ["performance", "📊 Performance"],
         ].map(([k, l]) => (
           <button key={k} style={{ ...E.tab, ...(tab === k ? E.tabActive : {}) }} onClick={() => setTab(k)}>{l}</button>
@@ -278,7 +277,34 @@ export default function EmployeeDashboard() {
       ══════════════════════════════════════════════════ */}
       {tab === "home" && (
         <div>
-          {/* KPI row */}
+          {/* 🔔 New Client Alert */}
+          {(() => {
+            const newlyAssigned = myClients.filter(c => {
+              const assignedDate = c.assigned_at || c.created_at
+              if (!assignedDate) return false
+              const diff = (new Date() - new Date(assignedDate)) / 86400000
+              return diff <= 7
+            })
+            return newlyAssigned.length > 0 ? (
+              <div style={{ background:'linear-gradient(135deg,#fdf2f8,#fce7f3)', border:'2px solid #f9a8d4', borderRadius:14, padding:'16px 20px', marginBottom:20, display:'flex', alignItems:'center', gap:16 }}>
+                <div style={{ fontSize:32 }}>🔔</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:15, color:'#be185d' }}>
+                    {newlyAssigned.length} New Client{newlyAssigned.length > 1 ? 's' : ''} Assigned to You!
+                  </div>
+                  <div style={{ fontSize:13, color:'#9d174d', marginTop:4 }}>
+                    {newlyAssigned.map(c => c.name).join(', ')} — check My Clients tab for details
+                  </div>
+                </div>
+                <button
+                  style={{ padding:'8px 16px', background:'#be185d', color:'#fff', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}
+                  onClick={() => setTab('clients')}
+                >
+                  View →
+                </button>
+              </div>
+            ) : null
+          })()}
           <div style={E.kpiGrid}>
             {[
               { icon:"💰", label:"Revenue This Month", value:fmt(monthRevenue),   color:"#10b981" },

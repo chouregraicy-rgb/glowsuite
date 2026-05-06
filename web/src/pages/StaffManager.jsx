@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import AddStaffModal from '../components/AddStaffModal'
 
 export default function StaffManager() {
-  const { salonId, currencySymbol } = useAuth()
+  const { salonId, currencySymbol, createStaffLogin } = useAuth()
   const sym = currencySymbol || '₹'
 
   const [staff, setStaff]           = useState([])
@@ -12,6 +12,14 @@ export default function StaffManager() {
   const [showAdd, setShowAdd]       = useState(false)
   const [selected, setSelected]     = useState(null)
   const [view, setView]             = useState('cards') // 'cards' | 'leaderboard'
+
+  // ── Create Login modal state ──
+  const [loginModal, setLoginModal] = useState(false)
+  const [loginTarget, setLoginTarget] = useState(null)
+  const [loginForm, setLoginForm]   = useState({ email: '', password: '', confirmPassword: '' })
+  const [loginSaving, setLoginSaving] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  const [loginSuccess, setLoginSuccess] = useState('')
 
   useEffect(() => { if (salonId) fetchStaff() }, [salonId])
 
@@ -23,7 +31,6 @@ export default function StaffManager() {
         .select('*')
         .eq('salon_id', salonId)
         .order('name')
-
       if (error) throw error
       setStaff(data || [])
     } catch (err) {
@@ -31,6 +38,34 @@ export default function StaffManager() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // ── Create login handler ──────────────────────────────────────
+  async function handleCreateLogin() {
+    setLoginError('')
+    if (!loginForm.email.trim()) return setLoginError('Email is required')
+    if (loginForm.password.length < 6) return setLoginError('Password must be at least 6 characters')
+    if (loginForm.password !== loginForm.confirmPassword) return setLoginError('Passwords do not match')
+    setLoginSaving(true)
+    try {
+      await createStaffLogin({
+        staffId:   loginTarget.id,
+        staffName: loginTarget.name,
+        email:     loginForm.email,
+        password:  loginForm.password,
+      })
+      setLoginSuccess(`✅ Login created for ${loginTarget.name}! They can now sign in with ${loginForm.email}`)
+      setLoginForm({ email: '', password: '', confirmPassword: '' })
+      fetchStaff()
+      setTimeout(() => {
+        setLoginModal(false)
+        setLoginSuccess('')
+        setLoginTarget(null)
+      }, 3000)
+    } catch (err) {
+      setLoginError(err.message || 'Failed to create login')
+    }
+    setLoginSaving(false)
   }
 
   function fmt(n) {
@@ -166,6 +201,25 @@ export default function StaffManager() {
               {emp.email && (
                 <div style={{fontSize:11,color:'#aaa',marginTop:8}}>✉️ {emp.email}</div>
               )}
+
+              {/* Create Login button */}
+              <button
+                style={{ marginTop:12, width:'100%', padding:'7px', borderRadius:8, border:'none', cursor:'pointer', fontSize:12, fontWeight:600,
+                  background: emp.user_id ? '#f0fdf4' : '#8b225215',
+                  color: emp.user_id ? '#065f46' : '#8b2252' }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!emp.user_id) {
+                    setLoginTarget(emp)
+                    setLoginForm({ email: emp.email || '', password: '', confirmPassword: '' })
+                    setLoginError('')
+                    setLoginSuccess('')
+                    setLoginModal(true)
+                  }
+                }}
+              >
+                {emp.user_id ? '✅ Login Active' : '🔑 Create Login'}
+              </button>
             </div>
           ))}
         </div>
@@ -237,6 +291,28 @@ export default function StaffManager() {
                 </div>
               </div>
             )}
+
+            {/* Create Login button in detail panel */}
+            <div style={{marginTop:24}}>
+              {selected.user_id ? (
+                <div style={{background:'#f0fdf4',borderRadius:10,padding:'12px 16px',fontSize:13,color:'#065f46',fontWeight:600,textAlign:'center'}}>
+                  ✅ Login Active — {selected.email}
+                </div>
+              ) : (
+                <button
+                  style={{width:'100%',padding:'11px',background:'#8b2252',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:600,cursor:'pointer'}}
+                  onClick={() => {
+                    setLoginTarget(selected)
+                    setLoginForm({ email: selected.email || '', password: '', confirmPassword: '' })
+                    setLoginError('')
+                    setLoginSuccess('')
+                    setLoginModal(true)
+                  }}
+                >
+                  🔑 Create Employee Login
+                </button>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -247,6 +323,81 @@ export default function StaffManager() {
           onClose={()=>setShowAdd(false)}
           onAdd={(emp)=>{ setStaff(s=>[...s, emp]); setShowAdd(false) }}
         />
+      )}
+
+      {/* ── Create Login Modal ── */}
+      {loginModal && loginTarget && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(2px)'}}>
+          <div style={{background:'#fff',borderRadius:16,padding:'28px 32px',width:420,maxWidth:'92vw',boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+              <div style={{fontWeight:700,fontSize:18}}>🔑 Create Login</div>
+              <button style={{background:'none',border:'none',fontSize:18,cursor:'pointer',color:'#aaa'}} onClick={()=>setLoginModal(false)}>✕</button>
+            </div>
+
+            {/* Staff info */}
+            <div style={{background:'#fdf2f8',borderRadius:10,padding:'12px 16px',marginBottom:20,fontSize:14}}>
+              <div style={{fontWeight:700,color:'#8b2252'}}>{loginTarget.name}</div>
+              <div style={{fontSize:12,color:'#888',marginTop:2}}>{loginTarget.role || 'Staff'} · Hyfy Salon</div>
+            </div>
+
+            <div style={{fontSize:13,color:'#6b7280',marginBottom:16,background:'#f9fafb',borderRadius:8,padding:'10px 14px'}}>
+              💡 This creates a login account for <strong>{loginTarget.name}</strong>. Share the email and password with them — they can log in immediately.
+            </div>
+
+            {loginError && (
+              <div style={{background:'#fff0f0',border:'1px solid #fcc',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#c00',marginBottom:14}}>
+                ⚠️ {loginError}
+              </div>
+            )}
+            {loginSuccess && (
+              <div style={{background:'#f0fff4',border:'1px solid #9f9',borderRadius:8,padding:'10px 14px',fontSize:13,color:'#060',marginBottom:14}}>
+                {loginSuccess}
+              </div>
+            )}
+
+            {!loginSuccess && (
+              <>
+                <div style={{marginBottom:14}}>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#555',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px'}}>Email Address</label>
+                  <input
+                    style={{width:'100%',padding:'11px 14px',border:'1.5px solid #e8e4df',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
+                    type="email"
+                    placeholder="employee@email.com"
+                    value={loginForm.email}
+                    onChange={e => setLoginForm(f => ({...f, email: e.target.value}))}
+                  />
+                </div>
+                <div style={{marginBottom:14}}>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#555',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px'}}>Password</label>
+                  <input
+                    style={{width:'100%',padding:'11px 14px',border:'1.5px solid #e8e4df',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
+                    type="password"
+                    placeholder="Min 6 characters"
+                    value={loginForm.password}
+                    onChange={e => setLoginForm(f => ({...f, password: e.target.value}))}
+                  />
+                </div>
+                <div style={{marginBottom:20}}>
+                  <label style={{display:'block',fontSize:12,fontWeight:600,color:'#555',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.5px'}}>Confirm Password</label>
+                  <input
+                    style={{width:'100%',padding:'11px 14px',border:'1.5px solid #e8e4df',borderRadius:10,fontSize:14,outline:'none',boxSizing:'border-box'}}
+                    type="password"
+                    placeholder="Repeat password"
+                    value={loginForm.confirmPassword}
+                    onChange={e => setLoginForm(f => ({...f, confirmPassword: e.target.value}))}
+                  />
+                </div>
+                <button
+                  style={{width:'100%',padding:'13px',background:'#8b2252',color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:600,cursor:'pointer'}}
+                  disabled={loginSaving}
+                  onClick={handleCreateLogin}
+                >
+                  {loginSaving ? 'Creating...' : '🔑 Create Login Account'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

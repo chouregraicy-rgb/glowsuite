@@ -76,14 +76,64 @@ export function AuthProvider({ children }) {
   }
 
   async function registerOwner({ name, email, password, salonName, settings }) {
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password, options: { data: { name, role: 'owner' } } })
+    // Step 1: Create auth user
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { name, role: 'owner' } }
+    })
     if (authError) throw authError
     const userId = authData.user.id
-    const { data: salonData, error: salonError } = await supabase.from('salons').insert({ name: salonName, owner_id: userId, plan: 'starter', settings }).select().single()
-    if (salonError) throw salonError
-    const { error: profileError } = await supabase.from('users').insert({ id: userId, salon_id: salonData.id, role: 'owner', name })
-    if (profileError) throw profileError
+
+    // Step 2: Create salon
+    const { data: salonData, error: salonError } = await supabase
+      .from('salons')
+      .insert({ name: salonName, owner_id: userId, plan: 'starter', settings })
+      .select().single()
+    if (salonError) throw new Error('Setup error. Please contact support with code: RLS-001-SALON')
+
+    // Step 3: Create user profile — use upsert to avoid conflicts
+    const { error: profileError } = await supabase
+      .from('users')
+      .upsert({ id: userId, salon_id: salonData.id, role: 'owner', name }, { onConflict: 'id' })
+    if (profileError) throw new Error('Setup error. Please contact support with code: RLS-001-PROFILE')
+
     return { user: authData.user, salon: salonData }
+  }
+
+  // ── Create login for an employee from Staff Manager ──────────
+  async function createStaffLogin({ staffId, staffName, email, password }) {
+    try {
+      // Step 1: Create Supabase auth account for employee
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { name: staffName, role: 'employee' } }
+      })
+      if (authError) throw authError
+
+      const newUserId = authData.user.id
+
+      // Step 2: Create user profile for employee
+      const { error: profileError } = await supabase
+        .from('users')
+        .upsert({
+          id: newUserId,
+          salon_id: salonId,
+          role: 'employee',
+          name: staffName,
+        }, { onConflict: 'id' })
+      if (profileError) throw profileError
+
+      // Step 3: Link auth user to staff/employees record
+      const { error: linkError } = await supabase
+        .from('employees')
+        .update({ user_id: newUserId, email })
+        .eq('id', staffId)
+      if (linkError) throw linkError
+
+      return { success: true }
+    } catch (err) {
+      throw new Error(err.message || 'Failed to create staff login')
+    }
   }
 
   async function signIn({ email, password }) {
@@ -98,7 +148,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, salon, loading, role, salonId, currencySymbol, taxName, taxRate, registerOwner, signIn, signOut, refreshProfile: () => user && loadProfile(user.id) }}>
+    <AuthContext.Provider value={{ user, profile, salon, loading, role, salonId, currencySymbol, taxName, taxRate, registerOwner, createStaffLogin, signIn, signOut, refreshProfile: () => user && loadProfile(user.id) }}>
       {children}
     </AuthContext.Provider>
   )
