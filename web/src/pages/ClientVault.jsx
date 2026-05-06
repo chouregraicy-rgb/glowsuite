@@ -1,442 +1,494 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
-// ─── MOCK DATA ────────────────────────────────────────────────────────────────
-const MOCK_CLIENTS = [
-  {
-    id: 1, token: '#A047', name: 'Priya Menon', phone: '+91 98400 12345', email: 'priya@gmail.com',
-    source: 'Instagram', loyaltyPoints: 450, totalSpent: 28500, visits: 8,
-    birthday: '1992-03-15', anniversary: '2018-11-20',
-    tags: ['Bridal', 'VIP', 'Regular'],
-    skinProfile: { hairType: 'Wavy, Medium', skinType: 'Combination', allergies: 'None', colorHistory: 'Balayage, Highlights', notes: 'Prefers soft tones. Sensitive scalp.' },
-    serviceHistory: [
-      { date: '2026-04-01', service: 'Bridal Makeup + Hair', amount: 8500, employee: 'Kavitha R.', rating: 5 },
-      { date: '2026-03-10', service: 'Hair Color — Balayage', amount: 6500, employee: 'Latha D.', rating: 5 },
-      { date: '2026-02-14', service: 'Spa Package', amount: 4500, employee: 'Sneha M.', rating: 4 },
-    ],
-    createdAt: '2025-08-01',
-  },
-  {
-    id: 2, token: '#B112', name: 'Anjali Rao', phone: '+91 98400 22222', email: 'anjali@gmail.com',
-    source: 'Referral', loyaltyPoints: 280, totalSpent: 15200, visits: 5,
-    birthday: '1995-07-22', anniversary: null,
-    tags: ['Regular'],
-    skinProfile: { hairType: 'Straight, Fine', skinType: 'Dry', allergies: 'Ammonia-based dye', colorHistory: 'Natural black', notes: 'Always book Kavitha.' },
-    serviceHistory: [
-      { date: '2026-03-25', service: 'Keratin Treatment', amount: 5500, employee: 'Kavitha R.', rating: 5 },
-      { date: '2026-02-10', service: 'Haircut + Style', amount: 1200, employee: 'Kavitha R.', rating: 4 },
-    ],
-    createdAt: '2025-10-15',
-  },
-  {
-    id: 3, token: '#C089', name: 'Divya Krishnan', phone: '+91 98400 33333', email: 'divya@gmail.com',
-    source: 'Google', loyaltyPoints: 120, totalSpent: 8900, visits: 3,
-    birthday: '1990-12-05', anniversary: '2015-02-14',
-    tags: ['New'],
-    skinProfile: { hairType: 'Curly, Thick', skinType: 'Oily', allergies: 'None', colorHistory: 'No color history', notes: 'First timer. Wants natural look.' },
-    serviceHistory: [
-      { date: '2026-04-02', service: 'Facial + Cleanup', amount: 2800, employee: 'Sneha M.', rating: 4 },
-    ],
-    createdAt: '2026-01-20',
-  },
-  {
-    id: 4, token: '#D203', name: 'Meera Sharma', phone: '+91 98400 44444', email: 'meera@gmail.com',
-    source: 'Walk-in', loyaltyPoints: 680, totalSpent: 42000, visits: 14,
-    birthday: '1988-05-30', anniversary: '2012-06-10',
-    tags: ['VIP', 'Bridal', 'Regular'],
-    skinProfile: { hairType: 'Wavy, Thick', skinType: 'Normal', allergies: 'Sulfate shampoos', colorHistory: 'Multiple highlights, Ombre', notes: 'Monthly visitor. Always full package.' },
-    serviceHistory: [
-      { date: '2026-04-03', service: 'Full Bridal Package', amount: 18000, employee: 'Kavitha R.', rating: 5 },
-      { date: '2026-03-01', service: 'Hair Color + Spa', amount: 9500, employee: 'Latha D.', rating: 5 },
-    ],
-    createdAt: '2024-11-05',
-  },
-]
+const TAGS = ['VIP', 'Bridal', 'Regular', 'New', 'Loyal']
+const TAG_COLORS = {
+  VIP:     { bg:'#fef3c7', color:'#d97706' },
+  Bridal:  { bg:'#fce7f3', color:'#db2777' },
+  Regular: { bg:'#e0f2fe', color:'#0284c7' },
+  New:     { bg:'#f0fdf4', color:'#16a34a' },
+  Loyal:   { bg:'#ede9fe', color:'#7c3aed' },
+}
+const HAIR_TYPES = ['Normal','Oily','Dry','Curly','Wavy','Straight','Damaged','Color-treated']
+const SKIN_TYPES = ['Normal','Oily','Dry','Combination','Sensitive','Mature']
+const SOURCES    = ['Walk-in','Instagram','WhatsApp','Google','Referral','Facebook','Phone']
+const COLORS     = ['#8b2252','#2563eb','#059669','#d97706','#7c3aed','#db2777','#0891b2']
 
-const SOURCE_EMOJI = { Instagram: '📱', WhatsApp: '💬', Google: '🌐', 'Walk-in': '🚶', Referral: '👥', Call: '📞' }
-const TAG_COLORS = { VIP: { bg: '#FAEEDA', color: '#BA7517' }, Bridal: { bg: '#FDF0F3', color: '#8B3A52' }, Regular: { bg: '#E1F5EE', color: '#0F6E56' }, New: { bg: '#E6F1FB', color: '#185FA5' } }
+function maskPhone(phone) {
+  if (!phone) return '—'
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length < 6) return '••••••'
+  return '+' + digits.slice(0,2) + ' XXXXX' + digits.slice(-4)
+}
 
-// ─── ADD CLIENT MODAL ─────────────────────────────────────────────────────────
-function AddClientModal({ onClose, onAdd }) {
-  const [form, setForm] = useState({ name: '', phone: '', email: '', source: 'Walk-in', birthday: '', tags: [] })
-  const [skin, setSkin] = useState({ hairType: '', skinType: '', allergies: '', notes: '' })
-  const up = (k, v) => setForm(f => ({ ...f, [k]: v }))
+function initials(name) {
+  return (name||'?').split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)
+}
 
-  function handleSubmit(e) {
-    e.preventDefault()
-    const token = '#' + String.fromCharCode(65 + Math.floor(Math.random() * 26)) + String(Math.floor(Math.random() * 900) + 100)
-    onAdd({
-      id: Date.now(), token, ...form, skinProfile: skin,
-      loyaltyPoints: 0, totalSpent: 0, visits: 0,
-      serviceHistory: [], anniversary: null,
-      createdAt: new Date().toISOString().split('T')[0],
-    })
-    onClose()
+// ── Assign Staff Sub-component ────────────────────────────────
+function AssignStaff({ client, salonId, onUpdate }) {
+  const [staff,  setStaff]  = useState([])
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!salonId) return
+    supabase
+      .from('employees')
+      .select('id, name, role')
+      .eq('salon_id', salonId)
+      .eq('status', 'active')
+      .then(({ data }) => setStaff(data || []))
+  }, [salonId])
+
+  async function assign(empId) {
+    if (!empId) return
+    setSaving(true)
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .update({ assigned_staff_id: empId })
+        .eq('id', client.id)
+        .select()
+        .single()
+      if (error) throw error
+      if (data) onUpdate(data)
+    } catch (err) {
+      console.error('assign staff:', err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
+  const current = staff.find(s => s.id === client.assigned_staff_id)
+
   return (
-    <div style={M.overlay}>
-      <div style={{ ...M.modal, maxWidth: 560 }}>
-        <div style={M.header}>
-          <div style={M.title}>Add New Client</div>
-          <button style={M.close} onClick={onClose}>✕</button>
+    <div>
+      {current && (
+        <div style={{ background:'#f0fdf4', borderRadius:8, padding:'8px 12px', marginBottom:8, fontSize:13, color:'#059669', fontWeight:600 }}>
+          ✅ Currently assigned to: {current.name}
         </div>
-        <form onSubmit={handleSubmit}>
-          <div style={M.section}>Personal Details</div>
-          <div style={M.grid2}>
-            <div style={M.field}><label style={M.label}>Full Name *</label><input style={M.input} required value={form.name} onChange={e => up('name', e.target.value)} placeholder="Priya Sharma" /></div>
-            <div style={M.field}><label style={M.label}>Phone *</label><input style={M.input} required value={form.phone} onChange={e => up('phone', e.target.value)} placeholder="+91 98000 00000" /></div>
-            <div style={M.field}><label style={M.label}>Email</label><input style={M.input} type="email" value={form.email} onChange={e => up('email', e.target.value)} placeholder="client@email.com" /></div>
-            <div style={M.field}><label style={M.label}>Source</label>
-              <select style={M.input} value={form.source} onChange={e => up('source', e.target.value)}>
-                {['Walk-in','Instagram','WhatsApp','Google','Referral','Call'].map(s => <option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div style={M.field}><label style={M.label}>Birthday</label><input style={M.input} type="date" value={form.birthday} onChange={e => up('birthday', e.target.value)} /></div>
-          </div>
-          <div style={M.section}>Hair & Skin Profile</div>
-          <div style={M.grid2}>
-            <div style={M.field}><label style={M.label}>Hair Type</label><input style={M.input} value={skin.hairType} onChange={e => setSkin(s => ({ ...s, hairType: e.target.value }))} placeholder="Wavy, Medium" /></div>
-            <div style={M.field}><label style={M.label}>Skin Type</label><input style={M.input} value={skin.skinType} onChange={e => setSkin(s => ({ ...s, skinType: e.target.value }))} placeholder="Combination" /></div>
-            <div style={M.field}><label style={M.label}>Allergies</label><input style={M.input} value={skin.allergies} onChange={e => setSkin(s => ({ ...s, allergies: e.target.value }))} placeholder="None / specify" /></div>
-          </div>
-          <div style={M.field}><label style={M.label}>Notes</label><textarea style={{ ...M.input, height: 64, resize: 'vertical' }} value={skin.notes} onChange={e => setSkin(s => ({ ...s, notes: e.target.value }))} placeholder="Any special notes..." /></div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-            <button type="button" style={M.cancelBtn} onClick={onClose}>Cancel</button>
-            <button type="submit" style={M.submitBtn}>Add Client →</button>
-          </div>
-        </form>
-      </div>
+      )}
+      <select
+        style={{ width:'100%', padding:'10px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', background:'#faf9f7', color:'#1a0a0a', cursor:'pointer' }}
+        value={client.assigned_staff_id || ''}
+        onChange={e => assign(e.target.value)}
+        disabled={saving}
+      >
+        <option value=''>— Select staff member —</option>
+        {staff.map(s => (
+          <option key={s.id} value={s.id}>{s.name} ({s.role || 'staff'})</option>
+        ))}
+      </select>
+      {saving && <div style={{ fontSize:11, color:'#8b2252', marginTop:4 }}>Saving...</div>}
     </div>
   )
 }
 
-// ─── CLIENT DETAIL PANEL ──────────────────────────────────────────────────────
-function ClientDetail({ client, onClose, sym }) {
-  const [tab, setTab] = useState('profile')
-  const [showPhone, setShowPhone] = useState(false)
-
-  const maskedPhone = client.phone.replace(/(\+\d{2})\s\d{5}(\d{5})/, '$1 XXXXX$2')
-
-  return (
-    <div style={D.overlay}>
-      <div style={D.panel}>
-        {/* Header */}
-        <div style={D.header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={D.avatar}>{client.name[0]}</div>
-            <div>
-              <div style={D.name}>{client.name}</div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                <span style={D.token}>{client.token}</span>
-                {client.tags.map(t => (
-                  <span key={t} style={{ ...D.tag, background: TAG_COLORS[t]?.bg, color: TAG_COLORS[t]?.color }}>{t}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-          <button style={D.closeBtn} onClick={onClose}>✕</button>
-        </div>
-
-        {/* Stats row */}
-        <div style={D.statsRow}>
-          <div style={D.statItem}><div style={D.statVal}>{sym}{client.totalSpent.toLocaleString()}</div><div style={D.statKey}>Total spent</div></div>
-          <div style={D.statItem}><div style={D.statVal}>{client.visits}</div><div style={D.statKey}>Visits</div></div>
-          <div style={D.statItem}><div style={D.statVal}>{client.loyaltyPoints}</div><div style={D.statKey}>Points</div></div>
-          <div style={D.statItem}><div style={D.statVal}>{SOURCE_EMOJI[client.source]}</div><div style={D.statKey}>{client.source}</div></div>
-        </div>
-
-        {/* Phone (masked by default) */}
-        <div style={D.phoneBox}>
-          <div>
-            <div style={D.phoneLabel}>📞 Phone number</div>
-            <div style={D.phoneNum}>{showPhone ? client.phone : maskedPhone}</div>
-          </div>
-          <button style={D.revealBtn} onClick={() => setShowPhone(s => !s)}>
-            {showPhone ? '🙈 Hide' : '👁 Reveal'}
-          </button>
-        </div>
-
-        {/* Contact info */}
-        <div style={D.infoRow}>
-          <span style={D.infoKey}>Email</span>
-          <span style={D.infoVal}>{client.email || '—'}</span>
-        </div>
-        {client.birthday && (
-          <div style={D.infoRow}>
-            <span style={D.infoKey}>🎂 Birthday</span>
-            <span style={D.infoVal}>{new Date(client.birthday).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}</span>
-          </div>
-        )}
-        {client.anniversary && (
-          <div style={D.infoRow}>
-            <span style={D.infoKey}>💍 Anniversary</span>
-            <span style={D.infoVal}>{new Date(client.anniversary).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}</span>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div style={D.tabs}>
-          {['profile', 'history', 'loyalty'].map(t => (
-            <button key={t} style={{ ...D.tab, ...(tab === t ? D.tabOn : {}) }} onClick={() => setTab(t)}>
-              {t === 'profile' ? 'Hair & Skin' : t === 'history' ? 'Service History' : 'Loyalty'}
-            </button>
-          ))}
-        </div>
-
-        {/* Tab content */}
-        {tab === 'profile' && (
-          <div style={D.tabContent}>
-            {[
-              ['Hair Type', client.skinProfile.hairType],
-              ['Skin Type', client.skinProfile.skinType],
-              ['Allergies', client.skinProfile.allergies],
-              ['Color History', client.skinProfile.colorHistory],
-            ].map(([k, v]) => v && (
-              <div key={k} style={D.profileRow}>
-                <span style={D.profileKey}>{k}</span>
-                <span style={D.profileVal}>{v}</span>
-              </div>
-            ))}
-            {client.skinProfile.notes && (
-              <div style={D.notesBox}>📝 {client.skinProfile.notes}</div>
-            )}
-          </div>
-        )}
-
-        {tab === 'history' && (
-          <div style={D.tabContent}>
-            {client.serviceHistory.map((s, i) => (
-              <div key={i} style={D.historyItem}>
-                <div style={{ flex: 1 }}>
-                  <div style={D.historyService}>{s.service}</div>
-                  <div style={D.historyMeta}>✂️ {s.employee} · {new Date(s.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={D.historyAmount}>{sym}{s.amount.toLocaleString()}</div>
-                  <div style={D.historyRating}>{'★'.repeat(s.rating)}{'☆'.repeat(5 - s.rating)}</div>
-                </div>
-              </div>
-            ))}
-            {client.serviceHistory.length === 0 && <div style={D.empty}>No service history yet</div>}
-          </div>
-        )}
-
-        {tab === 'loyalty' && (
-          <div style={D.tabContent}>
-            <div style={D.loyaltyCard}>
-              <div style={D.loyaltyPoints}>{client.loyaltyPoints}</div>
-              <div style={D.loyaltyLabel}>points available</div>
-              <div style={D.loyaltyValue}>= {sym}{Math.floor(client.loyaltyPoints / 10)} redemption value</div>
-            </div>
-            <div style={D.loyaltyInfo}>
-              <div style={D.loyaltyInfoItem}><span>Earn rate</span><span>10 pts per {sym}100 spent</span></div>
-              <div style={D.loyaltyInfoItem}><span>Redeem rate</span><span>{sym}1 per 10 points</span></div>
-              <div style={D.loyaltyInfoItem}><span>Total earned</span><span>{Math.floor(client.totalSpent / 10)} pts lifetime</span></div>
-            </div>
-            <div style={D.birthdayBox}>
-              🎁 Birthday bonus: <strong>2x points</strong> on birthday month!
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── CLIENT CARD ──────────────────────────────────────────────────────────────
-function ClientCard({ client, onClick, sym }) {
-  return (
-    <div style={C.card} onClick={() => onClick(client)}>
-      <div style={C.top}>
-        <div style={C.avatar}>{client.name[0]}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={C.name}>{client.name}</div>
-          <div style={C.token}>{client.token}</div>
-        </div>
-        <div style={C.tags}>
-          {client.tags.slice(0, 2).map(t => (
-            <span key={t} style={{ ...C.tag, background: TAG_COLORS[t]?.bg, color: TAG_COLORS[t]?.color }}>{t}</span>
-          ))}
-        </div>
-      </div>
-      <div style={C.stats}>
-        <div style={C.stat}><span style={C.statVal}>{sym}{client.totalSpent.toLocaleString()}</span><span style={C.statKey}>spent</span></div>
-        <div style={C.stat}><span style={C.statVal}>{client.visits}</span><span style={C.statKey}>visits</span></div>
-        <div style={C.stat}><span style={C.statVal}>{client.loyaltyPoints}</span><span style={C.statKey}>points</span></div>
-      </div>
-      <div style={C.footer}>
-        <span>{SOURCE_EMOJI[client.source]} {client.source}</span>
-        <span style={C.shield}>🛡 Masked</span>
-      </div>
-    </div>
-  )
-}
-
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+// ── Main ClientVault Component ────────────────────────────────
 export default function ClientVault() {
-  const { currencySymbol, profile } = useAuth()
-  const sym = currencySymbol || profile?.salons?.settings?.currencySymbol || '₹'
-  const [clients, setClients] = useState(MOCK_CLIENTS)
-  const [selected, setSelected] = useState(null)
-  const [showAdd, setShowAdd] = useState(false)
-  const [search, setSearch] = useState('')
-  const [filterTag, setFilterTag] = useState('All')
+  const { salonId, currencySymbol } = useAuth()
+  const sym = currencySymbol || '₹'
+
+  const [clients,   setClients]   = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [search,    setSearch]    = useState('')
+  const [filterTag, setFilterTag] = useState('all')
+  const [selected,  setSelected]  = useState(null)
+  const [revealed,  setRevealed]  = useState({})
+  const [showAdd,   setShowAdd]   = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [formErr,   setFormErr]   = useState('')
+
+  const [form, setForm] = useState({
+    name:'', phone:'', email:'', source:'Walk-in',
+    tags:[], hair_type:'', skin_type:'', allergies:'', notes:''
+  })
+
+  useEffect(() => { if (salonId) fetchClients() }, [salonId])
+
+  async function fetchClients() {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('salon_id', salonId)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      setClients(data || [])
+    } catch (err) {
+      console.error('fetchClients:', err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function generateToken(index) {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+    const letter = letters[Math.floor(index / 1000) % letters.length]
+    const num = String(index % 1000).padStart(3, '0')
+    return '#' + letter + num
+  }
+
+  async function addClient() {
+    if (!form.name.trim()) { setFormErr('Name is required'); return }
+    setSaving(true)
+    setFormErr('')
+    try {
+      const token = generateToken(clients.length)
+      const { data, error } = await supabase
+        .from('clients')
+        .insert({
+          salon_id:      salonId,
+          name:          form.name.trim(),
+          phone:         form.phone.trim() || null,
+          email:         form.email.trim() || null,
+          source:        form.source,
+          tags:          form.tags,
+          hair_type:     form.hair_type || null,
+          skin_type:     form.skin_type || null,
+          allergies:     form.allergies.trim() || null,
+          notes:         form.notes.trim() || null,
+          token,
+          loyalty_points: 0,
+          total_spent:    0,
+        })
+        .select()
+        .single()
+      if (error) throw error
+      setClients(c => [data, ...c])
+      setForm({ name:'', phone:'', email:'', source:'Walk-in', tags:[], hair_type:'', skin_type:'', allergies:'', notes:'' })
+      setShowAdd(false)
+    } catch (err) {
+      setFormErr(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function toggleFormTag(tag) {
+    setForm(f => ({
+      ...f,
+      tags: f.tags.includes(tag) ? f.tags.filter(t=>t!==tag) : [...f.tags, tag]
+    }))
+  }
+
+  function toggleReveal(id) {
+    setRevealed(r => ({ ...r, [id]: !r[id] }))
+  }
 
   const filtered = clients.filter(c => {
-    const matchSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.token.toLowerCase().includes(search.toLowerCase())
-    const matchTag = filterTag === 'All' || c.tags.includes(filterTag)
+    const matchSearch = !search ||
+      c.name?.toLowerCase().includes(search.toLowerCase()) ||
+      c.token?.includes(search.toUpperCase())
+    const matchTag = filterTag === 'all' || (c.tags||[]).includes(filterTag)
     return matchSearch && matchTag
   })
 
-  const totalRevenue = clients.reduce((s, c) => s + c.totalSpent, 0)
-  const vipCount = clients.filter(c => c.tags.includes('VIP')).length
-  const totalPoints = clients.reduce((s, c) => s + c.loyaltyPoints, 0)
+  const totalSpent = clients.reduce((s,c) => s+(c.total_spent||0), 0)
+  const vipCount   = clients.filter(c=>(c.tags||[]).includes('VIP')).length
+
+  // ── Styles ──────────────────────────────────────────────────
+  const S = {
+    wrap:    { padding:'0 4px' },
+    header:  { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 },
+    title:   { fontSize:22, fontWeight:700, color:'#1a0a0a' },
+    addBtn:  { padding:'8px 20px', background:'#8b2252', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' },
+    stats:   { display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:20 },
+    stat:    { background:'#fff', borderRadius:12, padding:'14px 18px', boxShadow:'0 1px 6px rgba(0,0,0,0.06)' },
+    statL:   { fontSize:11, color:'#aaa', fontWeight:600, letterSpacing:'1px', marginBottom:4 },
+    statV:   { fontSize:22, fontWeight:700, color:'#1a0a0a' },
+    toolbar: { display:'flex', gap:10, marginBottom:16, alignItems:'center', flexWrap:'wrap' },
+    search:  { flex:1, minWidth:180, padding:'9px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', background:'#faf9f7' },
+    fBtn:    (a) => ({ padding:'5px 14px', borderRadius:20, border:'none', cursor:'pointer', fontSize:12, fontWeight:500, background:a?'#8b2252':'#f5f3f0', color:a?'#fff':'#666' }),
+    grid:    { display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:16 },
+    card:    { background:'#fff', borderRadius:16, padding:20, boxShadow:'0 1px 8px rgba(0,0,0,0.06)', cursor:'pointer' },
+    avatar:  (c) => ({ width:48, height:48, borderRadius:'50%', background:c, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:17, color:'#fff', flexShrink:0 }),
+    token:   { fontSize:11, fontWeight:700, color:'#8b2252', background:'#fce7f3', padding:'2px 8px', borderRadius:8 },
+    tag:     (t) => ({ fontSize:10, padding:'2px 8px', borderRadius:10, background:TAG_COLORS[t]?.bg||'#f5f3f0', color:TAG_COLORS[t]?.color||'#666', fontWeight:600 }),
+    overlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 },
+    modal:   { background:'#fff', borderRadius:20, width:'100%', maxWidth:480, maxHeight:'90vh', overflowY:'auto', padding:28 },
+    label:   { display:'block', fontSize:12, fontWeight:600, color:'#555', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.5px', marginTop:14 },
+    input:   { width:'100%', padding:'10px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', color:'#1a0a0a', background:'#faf9f7' },
+    sel:     { width:'100%', padding:'10px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', color:'#1a0a0a', background:'#faf9f7' },
+    saveBtn: { width:'100%', padding:'12px', background:'#8b2252', color:'#fff', border:'none', borderRadius:10, fontSize:15, fontWeight:600, cursor:'pointer', marginTop:20 },
+    err:     { background:'#fff0f0', border:'1px solid #fcc', borderRadius:8, padding:'8px 12px', fontSize:13, color:'#c00', marginBottom:12 },
+    chip:    (a) => ({ padding:'5px 12px', borderRadius:20, border:a?'2px solid #8b2252':'1.5px solid #e8e4df', background:a?'#fce7f3':'transparent', color:a?'#8b2252':'#666', cursor:'pointer', fontSize:12, fontWeight:a?600:400 }),
+    panel:   { position:'fixed', right:0, top:0, width:420, height:'100vh', background:'#fff', boxShadow:'-4px 0 24px rgba(0,0,0,0.1)', zIndex:100, overflowY:'auto', padding:24 },
+    panelOv: { position:'fixed', inset:0, background:'rgba(0,0,0,0.2)', zIndex:99 },
+    row:     { display:'flex', justifyContent:'space-between', padding:'9px 0', borderBottom:'1px solid #f5f3f0', fontSize:13 },
+  }
+
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:300, color:'#888', flexDirection:'column', gap:12 }}>
+      <div style={{ fontSize:32 }}>⏳</div>
+      Loading client vault...
+    </div>
+  )
 
   return (
-    <div style={P.wrap}>
+    <div style={S.wrap}>
+
       {/* Header */}
-      <div style={P.header}>
+      <div style={S.header}>
         <div>
-          <div style={P.title}>Client Vault</div>
-          <div style={P.sub}>🛡 Phone numbers are masked from staff — only you can see real contact details</div>
+          <div style={S.title}>Client Vault 🛡</div>
+          <div style={{ fontSize:13, color:'#888', marginTop:2 }}>{clients.length} clients · Phone numbers encrypted</div>
         </div>
-        <button style={P.addBtn} onClick={() => setShowAdd(true)}>+ Add Client</button>
+        <button style={S.addBtn} onClick={() => setShowAdd(true)}>+ Add Client</button>
       </div>
 
       {/* Stats */}
-      <div style={P.statsRow}>
+      <div style={S.stats}>
         {[
-          { label: 'Total Clients', value: clients.length, color: '#185FA5' },
-          { label: 'VIP Clients', value: vipCount, color: '#BA7517' },
-          { label: 'Total Revenue', value: `${sym}${totalRevenue.toLocaleString()}`, color: '#0F6E56' },
-          { label: 'Loyalty Points Issued', value: totalPoints.toLocaleString(), color: '#533AB7' },
+          { label:'TOTAL CLIENTS', value: clients.length },
+          { label:'VIP CLIENTS',   value: vipCount },
+          { label:'TOTAL REVENUE', value: sym + (totalSpent/1000).toFixed(1) + 'k' },
+          { label:'AVG SPEND',     value: clients.length ? sym + Math.round(totalSpent/clients.length).toLocaleString() : sym + '0' },
         ].map(s => (
-          <div key={s.label} style={P.statCard}>
-            <div style={{ fontSize: 10, color: '#B0A89F', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: s.color, fontFamily: "'Cormorant Garamond', serif" }}>{s.value}</div>
+          <div key={s.label} style={S.stat}>
+            <div style={S.statL}>{s.label}</div>
+            <div style={S.statV}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Masking notice */}
-      <div style={P.maskNotice}>
-        🛡 <strong>Client Shield Active</strong> — Employees see only client tokens (e.g. #A047). Real phone numbers and emails are encrypted and visible only to you.
+      {/* Shield notice */}
+      <div style={{ background:'#eef2ff', border:'1px solid #c7d2fe', borderRadius:12, padding:'10px 16px', marginBottom:16, display:'flex', alignItems:'center', gap:10, fontSize:13, color:'#4338ca' }}>
+        🛡 <strong>Client Shield Active</strong> — Phone numbers are masked for staff. Only owners can reveal.
       </div>
 
-      {/* Filters */}
-      <div style={P.filters}>
-        <input style={P.search} placeholder="🔍  Search by name or token..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div style={P.tagFilters}>
-          {['All', 'VIP', 'Bridal', 'Regular', 'New'].map(t => (
-            <button key={t} style={{ ...P.filterBtn, ...(filterTag === t ? P.filterBtnOn : {}) }} onClick={() => setFilterTag(t)}>{t}</button>
-          ))}
-        </div>
+      {/* Toolbar */}
+      <div style={S.toolbar}>
+        <input style={S.search} placeholder="🔍 Search by name or token..." value={search} onChange={e => setSearch(e.target.value)} />
+        <button style={S.fBtn(filterTag==='all')} onClick={() => setFilterTag('all')}>All</button>
+        {TAGS.map(t => (
+          <button key={t} style={S.fBtn(filterTag===t)} onClick={() => setFilterTag(t)}>{t}</button>
+        ))}
       </div>
+
+      {/* Empty state */}
+      {filtered.length === 0 && (
+        <div style={{ textAlign:'center', padding:'60px 20px', color:'#aaa' }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>👤</div>
+          <div style={{ fontSize:18, fontWeight:700, color:'#1a0a0a', marginBottom:8 }}>
+            {clients.length === 0 ? 'No clients yet' : 'No clients found'}
+          </div>
+          <div style={{ fontSize:14, marginBottom:20 }}>
+            {clients.length === 0 ? 'Add your first client to get started' : 'Try a different search or filter'}
+          </div>
+          {clients.length === 0 && (
+            <button style={{ ...S.addBtn, padding:'10px 28px', fontSize:14 }} onClick={() => setShowAdd(true)}>
+              + Add First Client
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Client grid */}
-      <div style={P.grid}>
-        {filtered.map(c => <ClientCard key={c.id} client={c} onClick={setSelected} sym={sym} />)}
-        {filtered.length === 0 && <div style={P.empty}>No clients found</div>}
+      <div style={S.grid}>
+        {filtered.map((client, i) => {
+          const isRevealed = revealed[client.id]
+          return (
+            <div key={client.id} style={S.card} onClick={() => setSelected(client)}>
+              <div style={{ display:'flex', gap:12, alignItems:'flex-start', marginBottom:12 }}>
+                <div style={S.avatar(COLORS[i % COLORS.length])}>{initials(client.name)}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:'#1a0a0a' }}>{client.name}</div>
+                    {client.token && <span style={S.token}>{client.token}</span>}
+                  </div>
+                  <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
+                    {(client.tags||[]).map(t => (
+                      <span key={t} style={S.tag(t)}>{t}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Phone masking */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:'#f5f3f0', borderRadius:8, padding:'7px 12px', marginBottom:10 }}>
+                <span style={{ fontSize:13, color:'#555', fontFamily:'monospace' }}>
+                  📱 {isRevealed ? (client.phone || 'No phone') : maskPhone(client.phone)}
+                </span>
+                {client.phone && (
+                  <button
+                    onClick={e => { e.stopPropagation(); toggleReveal(client.id) }}
+                    style={{ fontSize:11, padding:'3px 10px', border:'none', borderRadius:6, background:isRevealed?'#8b2252':'#1a0a0a', color:'#fff', cursor:'pointer', fontWeight:600 }}
+                  >
+                    {isRevealed ? '🙈 Hide' : '👁 Reveal'}
+                  </button>
+                )}
+              </div>
+
+              {/* Mini stats */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, fontSize:12 }}>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ color:'#888', marginBottom:2 }}>Spent</div>
+                  <div style={{ fontWeight:700, color:'#8b2252' }}>{sym}{(client.total_spent||0).toLocaleString()}</div>
+                </div>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ color:'#888', marginBottom:2 }}>Points</div>
+                  <div style={{ fontWeight:700, color:'#6366f1' }}>{client.loyalty_points||0}</div>
+                </div>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ color:'#888', marginBottom:2 }}>Source</div>
+                  <div style={{ fontWeight:600, color:'#555' }}>{client.source||'—'}</div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      {showAdd && <AddClientModal onClose={() => setShowAdd(false)} onAdd={c => setClients(cl => [c, ...cl])} />}
-      {selected && <ClientDetail client={selected} onClose={() => setSelected(null)} sym={sym} />}
+      {/* ── Add Client Modal ── */}
+      {showAdd && (
+        <div style={S.overlay} onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
+          <div style={S.modal}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <div style={{ fontSize:18, fontWeight:700 }}>+ Add New Client</div>
+              <button onClick={() => setShowAdd(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#888' }}>✕</button>
+            </div>
+
+            {formErr && <div style={S.err}>⚠️ {formErr}</div>}
+
+            <label style={S.label}>Full Name *</label>
+            <input style={S.input} placeholder="e.g. Priya Sharma" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} />
+
+            <label style={S.label}>Phone</label>
+            <input style={S.input} placeholder="+91 98765 43210" value={form.phone} onChange={e => setForm(f=>({...f,phone:e.target.value}))} />
+
+            <label style={S.label}>Email</label>
+            <input style={S.input} type="email" placeholder="priya@example.com" value={form.email} onChange={e => setForm(f=>({...f,email:e.target.value}))} />
+
+            <label style={S.label}>Source</label>
+            <select style={S.sel} value={form.source} onChange={e => setForm(f=>({...f,source:e.target.value}))}>
+              {SOURCES.map(s => <option key={s}>{s}</option>)}
+            </select>
+
+            <label style={S.label}>Tags</label>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:4 }}>
+              {TAGS.map(t => (
+                <button key={t} style={S.chip(form.tags.includes(t))} onClick={() => toggleFormTag(t)}>{t}</button>
+              ))}
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+              <div>
+                <label style={S.label}>Hair Type</label>
+                <select style={S.sel} value={form.hair_type} onChange={e => setForm(f=>({...f,hair_type:e.target.value}))}>
+                  <option value=''>Select...</option>
+                  {HAIR_TYPES.map(h => <option key={h}>{h}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={S.label}>Skin Type</label>
+                <select style={S.sel} value={form.skin_type} onChange={e => setForm(f=>({...f,skin_type:e.target.value}))}>
+                  <option value=''>Select...</option>
+                  {SKIN_TYPES.map(s => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <label style={S.label}>Allergies / Sensitivities</label>
+            <input style={S.input} placeholder="e.g. Ammonia, Peanuts" value={form.allergies} onChange={e => setForm(f=>({...f,allergies:e.target.value}))} />
+
+            <label style={S.label}>Notes</label>
+            <textarea style={{ ...S.input, height:60, resize:'vertical' }} placeholder="Any special notes..." value={form.notes} onChange={e => setForm(f=>({...f,notes:e.target.value}))} />
+
+            <button style={S.saveBtn} onClick={addClient} disabled={saving}>
+              {saving ? 'Adding...' : '+ Add Client'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Client Detail Panel ── */}
+      {selected && (
+        <>
+          <div style={S.panelOv} onClick={() => setSelected(null)} />
+          <div style={S.panel}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+              <div style={{ fontSize:17, fontWeight:700 }}>Client Profile</div>
+              <button onClick={() => setSelected(null)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#888' }}>✕</button>
+            </div>
+
+            {/* Avatar */}
+            <div style={{ textAlign:'center', marginBottom:20 }}>
+              <div style={{ ...S.avatar(COLORS[clients.indexOf(selected) % COLORS.length]), width:64, height:64, fontSize:22, margin:'0 auto 10px' }}>
+                {initials(selected.name)}
+              </div>
+              <div style={{ fontSize:18, fontWeight:700 }}>{selected.name}</div>
+              {selected.token && (
+                <div style={{ ...S.token, display:'inline-block', marginTop:6 }}>{selected.token}</div>
+              )}
+              <div style={{ display:'flex', gap:4, justifyContent:'center', marginTop:8, flexWrap:'wrap' }}>
+                {(selected.tags||[]).map(t => <span key={t} style={S.tag(t)}>{t}</span>)}
+              </div>
+            </div>
+
+            {/* Protected phone */}
+            <div style={{ background:'#eef2ff', borderRadius:12, padding:14, marginBottom:16, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:11, color:'#6366f1', fontWeight:600, marginBottom:4 }}>🛡 PROTECTED PHONE</div>
+                <div style={{ fontSize:14, fontFamily:'monospace', fontWeight:600 }}>
+                  {revealed[selected.id] ? (selected.phone || 'No phone') : maskPhone(selected.phone)}
+                </div>
+              </div>
+              {selected.phone && (
+                <button
+                  onClick={() => toggleReveal(selected.id)}
+                  style={{ padding:'6px 14px', background:revealed[selected.id]?'#8b2252':'#6366f1', color:'#fff', border:'none', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600 }}
+                >
+                  {revealed[selected.id] ? '🙈 Hide' : '👁 Reveal'}
+                </button>
+              )}
+            </div>
+
+            {/* Assign Staff */}
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:'#888', marginBottom:8, textTransform:'uppercase', letterSpacing:'1px' }}>
+                👤 Assign Staff
+              </div>
+              <AssignStaff
+                client={selected}
+                salonId={salonId}
+                onUpdate={(updated) => {
+                  setClients(c => c.map(x => x.id === updated.id ? updated : x))
+                  setSelected(updated)
+                }}
+              />
+            </div>
+
+            {/* Details */}
+            {[
+              ['Email',       selected.email      || '—'],
+              ['Source',      selected.source     || '—'],
+              ['Hair Type',   selected.hair_type  || '—'],
+              ['Skin Type',   selected.skin_type  || '—'],
+              ['Allergies',   selected.allergies  || '—'],
+              ['Total Spent', sym + (selected.total_spent||0).toLocaleString()],
+              ['Loyalty Pts', (selected.loyalty_points||0) + ' pts'],
+              ['Joined',      new Date(selected.created_at).toLocaleDateString('en-IN',{ day:'numeric', month:'long', year:'numeric' })],
+            ].map(([k,v]) => (
+              <div key={k} style={S.row}>
+                <span style={{ color:'#888' }}>{k}</span>
+                <span style={{ fontWeight:600, maxWidth:220, textAlign:'right' }}>{v}</span>
+              </div>
+            ))}
+
+            {/* Notes */}
+            {selected.notes && (
+              <div style={{ marginTop:16, background:'#faf9f7', borderRadius:10, padding:12, fontSize:13, color:'#555', lineHeight:1.6 }}>
+                <div style={{ fontWeight:600, marginBottom:4, color:'#1a0a0a' }}>📝 Notes</div>
+                {selected.notes}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
     </div>
   )
-}
-
-// ─── STYLES ──────────────────────────────────────────────────────────────────
-const INK = '#1A1208', STONE = '#6B6258', MIST = '#F8F5F0', ROSE = '#8B3A52'
-
-const P = {
-  wrap: { fontFamily: "'DM Sans', sans-serif" },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 600, color: INK },
-  sub: { fontSize: 12, color: STONE, marginTop: 3 },
-  addBtn: { padding: '9px 18px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
-  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 },
-  statCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 10, padding: '12px 16px' },
-  maskNotice: { background: '#FDF0F3', border: '0.5px solid #E8B4C0', borderRadius: 10, padding: '10px 16px', fontSize: 13, color: ROSE, marginBottom: 16 },
-  filters: { display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' },
-  search: { padding: '8px 14px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', width: 240 },
-  tagFilters: { display: 'flex', gap: 6 },
-  filterBtn: { padding: '5px 14px', border: '0.5px solid #E8E0D8', borderRadius: 20, fontSize: 12, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', color: STONE },
-  filterBtnOn: { background: ROSE, color: '#fff', border: `0.5px solid ${ROSE}` },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 },
-  empty: { gridColumn: '1/-1', textAlign: 'center', color: '#B0A89F', padding: 40, fontSize: 14 },
-}
-
-const C = {
-  card: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 14, padding: '16px', cursor: 'pointer', transition: 'all 0.15s' },
-  top: { display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
-  avatar: { width: 38, height: 38, borderRadius: '50%', background: '#FDF0F3', color: ROSE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 500, flexShrink: 0 },
-  name: { fontSize: 14, fontWeight: 500, color: INK },
-  token: { fontSize: 11, color: ROSE, background: '#FDF0F3', padding: '1px 7px', borderRadius: 6, display: 'inline-block', marginTop: 3 },
-  tags: { display: 'flex', gap: 4, flexWrap: 'wrap' },
-  tag: { fontSize: 10, padding: '2px 7px', borderRadius: 10, fontWeight: 500 },
-  stats: { display: 'flex', gap: 0, borderTop: '0.5px solid #F0EAE4', borderBottom: '0.5px solid #F0EAE4', padding: '8px 0', margin: '0 0 10px' },
-  stat: { flex: 1, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 2 },
-  statVal: { fontSize: 13, fontWeight: 500, color: INK },
-  statKey: { fontSize: 10, color: STONE },
-  footer: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: STONE },
-  shield: { color: ROSE, fontWeight: 500 },
-}
-
-const D = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.4)', display: 'flex', justifyContent: 'flex-end', zIndex: 100 },
-  panel: { width: 420, background: '#fff', height: '100vh', overflowY: 'auto', padding: 24, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  avatar: { width: 48, height: 48, borderRadius: '50%', background: '#FDF0F3', color: ROSE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 500, flexShrink: 0 },
-  name: { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: INK },
-  token: { fontSize: 11, color: ROSE, background: '#FDF0F3', padding: '2px 8px', borderRadius: 6, display: 'inline-block' },
-  tag: { fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 500, display: 'inline-block' },
-  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: STONE },
-  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, margin: '16px 0' },
-  statItem: { background: MIST, borderRadius: 8, padding: '8px', textAlign: 'center' },
-  statVal: { fontSize: 15, fontWeight: 600, color: INK },
-  statKey: { fontSize: 10, color: STONE, marginTop: 2 },
-  phoneBox: { background: '#FDF0F3', borderRadius: 10, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  phoneLabel: { fontSize: 11, color: STONE, marginBottom: 3 },
-  phoneNum: { fontSize: 15, fontWeight: 500, color: INK, fontFamily: 'monospace' },
-  revealBtn: { padding: '5px 12px', background: ROSE, color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 },
-  infoRow: { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '0.5px solid #F0EAE4', fontSize: 13 },
-  infoKey: { color: STONE },
-  infoVal: { color: INK, fontWeight: 500 },
-  tabs: { display: 'flex', gap: 0, background: MIST, borderRadius: 10, padding: 4, margin: '16px 0 0' },
-  tab: { flex: 1, padding: '8px', border: 'none', background: 'transparent', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', color: STONE, fontFamily: 'inherit' },
-  tabOn: { background: '#fff', color: ROSE },
-  tabContent: { padding: '12px 0' },
-  profileRow: { display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '0.5px solid #F0EAE4', fontSize: 13 },
-  profileKey: { color: STONE },
-  profileVal: { color: INK, fontWeight: 500, maxWidth: '60%', textAlign: 'right' },
-  notesBox: { background: '#FAEEDA', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#6B4C1A', marginTop: 10, lineHeight: 1.5 },
-  historyItem: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '0.5px solid #F0EAE4' },
-  historyService: { fontSize: 13, fontWeight: 500, color: INK },
-  historyMeta: { fontSize: 11, color: STONE, marginTop: 2 },
-  historyAmount: { fontSize: 13, fontWeight: 500, color: '#0F6E56' },
-  historyRating: { fontSize: 11, color: '#BA7517', marginTop: 2 },
-  empty: { textAlign: 'center', color: '#B0A89F', padding: '20px 0', fontSize: 13 },
-  loyaltyCard: { background: 'linear-gradient(135deg, #8B3A52, #BA7517)', borderRadius: 12, padding: '24px', textAlign: 'center', color: '#fff', marginBottom: 14 },
-  loyaltyPoints: { fontSize: 48, fontWeight: 600, fontFamily: "'Cormorant Garamond', serif" },
-  loyaltyLabel: { fontSize: 13, opacity: 0.8, marginTop: 4 },
-  loyaltyValue: { fontSize: 12, opacity: 0.7, marginTop: 6 },
-  loyaltyInfo: { background: MIST, borderRadius: 10, padding: '12px 14px', marginBottom: 12 },
-  loyaltyInfoItem: { display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '5px 0', borderBottom: '0.5px solid #E8E0D8', color: INK },
-  birthdayBox: { background: '#E1F5EE', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#0F6E56' },
-}
-
-const M = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 },
-  modal: { background: '#fff', borderRadius: 16, padding: '28px', width: '100%', maxWidth: 560, boxShadow: '0 8px 48px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: INK },
-  close: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: STONE },
-  section: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10, marginTop: 16, borderBottom: '0.5px solid #E8E0D8', paddingBottom: 6 },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
-  field: { display: 'flex', flexDirection: 'column', gap: 5 },
-  label: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.3px' },
-  input: { padding: '9px 12px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#FDFAF8', color: INK },
-  cancelBtn: { padding: '9px 18px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
-  submitBtn: { padding: '9px 20px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
 }

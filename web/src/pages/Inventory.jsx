@@ -1,319 +1,692 @@
-import { useState } from 'react'
-import { useAuth } from '../context/AuthContext'
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 
-// ─── MOCK DATA ────────────────────────────────────────────────────────────────
-const CATEGORIES = [
-  { id: 'all', label: 'All', icon: '📦' },
-  { id: 'hair', label: 'Hair', icon: '✂️' },
-  { id: 'skin', label: 'Skin', icon: '✨' },
-  { id: 'spa', label: 'Spa', icon: '🧖' },
-  { id: 'nails', label: 'Nails', icon: '💅' },
-  { id: 'makeup', label: 'Makeup', icon: '💄' },
-  { id: 'equipment', label: 'Equipment', icon: '🔧' },
-  { id: 'disposables', label: 'Disposables', icon: '🧻' },
-]
+// ─── Constants ────────────────────────────────────────────────
+const SALON_ID = "d4426e94-4dcb-41e4-90bb-71543533cbed";
+const CATEGORIES = ["All", "Hair", "Skin", "Wax", "Nail", "Makeup", "Tools", "General"];
+const UNITS = ["pcs", "ml", "g", "bottle", "box", "pack", "roll"];
+const MOVEMENT_TYPES = [
+  { key: "restock",    label: "Restock",    icon: "📦", color: "#10b981" },
+  { key: "usage",      label: "Usage",      icon: "✂️",  color: "#6366f1" },
+  { key: "adjustment", label: "Adjust",     icon: "⚖️",  color: "#f59e0b" },
+  { key: "waste",      label: "Waste/Loss", icon: "🗑️", color: "#ef4444" },
+];
 
-const MOCK_INVENTORY = [
-  // Hair
-  { id: 1, name: 'Wella Color Cream — Ash Blonde', category: 'hair', unit: 'tube', quantity: 8, minStock: 5, costPerUnit: 450, sellingPrice: 0, barcode: 'WCC-001', supplier: 'Wella India', lastRestocked: '2026-03-15', usedThisMonth: 12 },
-  { id: 2, name: 'Schwarzkopf BLOND ME Bleach', category: 'hair', unit: 'sachet', quantity: 3, minStock: 8, costPerUnit: 380, sellingPrice: 0, barcode: 'SKB-002', supplier: 'Schwarzkopf', lastRestocked: '2026-03-10', usedThisMonth: 18 },
-  { id: 3, name: 'Olaplex No.3 Hair Perfector', category: 'hair', unit: 'bottle', quantity: 6, minStock: 4, costPerUnit: 2200, sellingPrice: 3500, barcode: 'OLP-003', supplier: 'Olaplex', lastRestocked: '2026-03-20', usedThisMonth: 5 },
-  { id: 4, name: 'Keratin Treatment Solution', category: 'hair', unit: 'ml', quantity: 500, minStock: 300, costPerUnit: 2, sellingPrice: 0, barcode: 'KRT-004', supplier: 'Keratin World', lastRestocked: '2026-03-01', usedThisMonth: 1200 },
-  { id: 5, name: 'Loreal Developer 20 Vol', category: 'hair', unit: 'ml', quantity: 2000, minStock: 500, costPerUnit: 0.5, sellingPrice: 0, barcode: 'LOR-005', supplier: 'Loreal Pro', lastRestocked: '2026-03-25', usedThisMonth: 800 },
-  { id: 6, name: 'Toning Shampoo — Silver', category: 'hair', unit: 'bottle', quantity: 4, minStock: 3, costPerUnit: 850, sellingPrice: 1200, barcode: 'TOS-006', supplier: 'Fanola', lastRestocked: '2026-02-28', usedThisMonth: 3 },
+const fmt  = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
+const fmtN = (n) => Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 });
 
-  // Skin
-  { id: 7, name: 'Dermalogica Daily Cleanser', category: 'skin', unit: 'bottle', quantity: 3, minStock: 4, costPerUnit: 1800, sellingPrice: 2800, barcode: 'DRM-007', supplier: 'Dermalogica', lastRestocked: '2026-03-05', usedThisMonth: 4 },
-  { id: 8, name: 'Vitamin C Serum', category: 'skin', unit: 'bottle', quantity: 7, minStock: 3, costPerUnit: 1200, sellingPrice: 2200, barcode: 'VCS-008', supplier: 'The Ordinary', lastRestocked: '2026-03-18', usedThisMonth: 6 },
-  { id: 9, name: 'AHA BHA Peel Solution', category: 'skin', unit: 'bottle', quantity: 2, minStock: 3, costPerUnit: 950, sellingPrice: 0, barcode: 'AHA-009', supplier: 'Medik8', lastRestocked: '2026-02-15', usedThisMonth: 8 },
-  { id: 10, name: 'Hydrating Facial Mask', category: 'skin', unit: 'sheet', quantity: 45, minStock: 20, costPerUnit: 85, sellingPrice: 0, barcode: 'HFM-010', supplier: 'Dr. Jart', lastRestocked: '2026-03-22', usedThisMonth: 32 },
-
-  // Spa
-  { id: 11, name: 'Lavender Massage Oil', category: 'spa', unit: 'ml', quantity: 800, minStock: 500, costPerUnit: 1.2, sellingPrice: 0, barcode: 'LMO-011', supplier: 'Aroma Magic', lastRestocked: '2026-03-10', usedThisMonth: 600 },
-  { id: 12, name: 'Coffee Body Scrub', category: 'spa', unit: 'g', quantity: 2000, minStock: 1000, costPerUnit: 0.4, sellingPrice: 0, barcode: 'CBS-012', supplier: 'Forest Essentials', lastRestocked: '2026-03-08', usedThisMonth: 1500 },
-  { id: 13, name: 'Hot Stone Set (12 stones)', category: 'spa', unit: 'set', quantity: 2, minStock: 1, costPerUnit: 3500, sellingPrice: 0, barcode: 'HSS-013', supplier: 'SpaEquip', lastRestocked: '2025-12-01', usedThisMonth: 0 },
-  { id: 14, name: 'Aromatherapy Diffuser Oil', category: 'spa', unit: 'bottle', quantity: 5, minStock: 3, costPerUnit: 650, sellingPrice: 0, barcode: 'ADO-014', supplier: 'Soulflower', lastRestocked: '2026-03-12', usedThisMonth: 2 },
-
-  // Nails
-  { id: 15, name: 'OPI Gel Base Coat', category: 'nails', unit: 'bottle', quantity: 4, minStock: 3, costPerUnit: 1200, sellingPrice: 0, barcode: 'OPI-015', supplier: 'OPI India', lastRestocked: '2026-03-01', usedThisMonth: 3 },
-  { id: 16, name: 'Gel Nail Colors (pack of 12)', category: 'nails', unit: 'pack', quantity: 6, minStock: 4, costPerUnit: 2800, sellingPrice: 0, barcode: 'GNC-016', supplier: 'CND', lastRestocked: '2026-03-15', usedThisMonth: 4 },
-  { id: 17, name: 'Acrylic Powder — Clear', category: 'nails', unit: 'g', quantity: 150, minStock: 100, costPerUnit: 3, sellingPrice: 0, barcode: 'APC-017', supplier: 'MMA Nails', lastRestocked: '2026-03-20', usedThisMonth: 80 },
-  { id: 18, name: 'UV/LED Nail Lamp', category: 'nails', unit: 'unit', quantity: 2, minStock: 1, costPerUnit: 4500, sellingPrice: 0, barcode: 'UVL-018', supplier: 'Gelish', lastRestocked: '2025-10-01', usedThisMonth: 0 },
-
-  // Makeup
-  { id: 19, name: 'MAC Studio Fix Foundation', category: 'makeup', unit: 'bottle', quantity: 8, minStock: 5, costPerUnit: 2800, sellingPrice: 3800, barcode: 'MAC-019', supplier: 'MAC Cosmetics', lastRestocked: '2026-03-10', usedThisMonth: 6 },
-  { id: 20, name: 'Airbrush Makeup Kit', category: 'makeup', unit: 'kit', quantity: 1, minStock: 1, costPerUnit: 18000, sellingPrice: 0, barcode: 'AMK-020', supplier: 'Dinair', lastRestocked: '2025-11-01', usedThisMonth: 0 },
-  { id: 21, name: 'Setting Spray — Long Wear', category: 'makeup', unit: 'bottle', quantity: 5, minStock: 3, costPerUnit: 1500, sellingPrice: 0, barcode: 'SSP-021', supplier: 'Urban Decay', lastRestocked: '2026-03-05', usedThisMonth: 4 },
-
-  // Disposables
-  { id: 22, name: 'Disposable Towels', category: 'disposables', unit: 'piece', quantity: 200, minStock: 100, costPerUnit: 12, sellingPrice: 0, barcode: 'DPT-022', supplier: 'Laundry Co', lastRestocked: '2026-03-25', usedThisMonth: 180 },
-  { id: 23, name: 'Gloves (box of 100)', category: 'disposables', unit: 'box', quantity: 4, minStock: 3, costPerUnit: 350, sellingPrice: 0, barcode: 'GLV-023', supplier: 'MedSupply', lastRestocked: '2026-03-20', usedThisMonth: 2 },
-  { id: 24, name: 'Foil Sheets', category: 'disposables', unit: 'sheet', quantity: 300, minStock: 200, costPerUnit: 2, sellingPrice: 0, barcode: 'FLS-024', supplier: 'HairSupply', lastRestocked: '2026-03-15', usedThisMonth: 250 },
-]
-
-function getStockStatus(item) {
-  if (item.quantity <= 0) return { label: 'Out of Stock', color: '#993C1D', bg: '#FAECE7' }
-  if (item.quantity <= item.minStock) return { label: 'Low Stock', color: '#BA7517', bg: '#FAEEDA' }
-  return { label: 'In Stock', color: '#0F6E56', bg: '#E1F5EE' }
+function stockStatus(item) {
+  const s = Number(item.current_stock);
+  const min = Number(item.min_stock);
+  if (s === 0) return { label: "Out of Stock", color: "#ef4444", bg: "#fee2e2", bar: 0 };
+  if (s <= min) return { label: "Low Stock",   color: "#f59e0b", bg: "#fef3c7", bar: Math.min(100, (s / min) * 50) };
+  return          { label: "In Stock",      color: "#10b981", bg: "#d1fae5", bar: Math.min(100, (s / Number(item.max_stock || 100)) * 100) };
 }
 
-// ─── ADD ITEM MODAL ───────────────────────────────────────────────────────────
-function AddItemModal({ onClose, onAdd, sym }) {
-  const [form, setForm] = useState({ name: '', category: 'hair', unit: 'bottle', quantity: 0, minStock: 5, costPerUnit: 0, supplier: '', barcode: '' })
-  const up = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  function handleSubmit(e) {
-    e.preventDefault()
-    onAdd({ id: Date.now(), ...form, quantity: Number(form.quantity), minStock: Number(form.minStock), costPerUnit: Number(form.costPerUnit), sellingPrice: 0, lastRestocked: new Date().toISOString().split('T')[0], usedThisMonth: 0 })
-    onClose()
-  }
-
-  return (
-    <div style={Mo.overlay}>
-      <div style={Mo.modal}>
-        <div style={Mo.header}><div style={Mo.title}>Add Inventory Item</div><button style={Mo.close} onClick={onClose}>✕</button></div>
-        <form onSubmit={handleSubmit} style={Mo.form}>
-          <div style={Mo.grid2}>
-            <div style={{ ...Mo.field, gridColumn: '1/-1' }}><label style={Mo.label}>Product Name *</label><input style={Mo.input} required value={form.name} onChange={e => up('name', e.target.value)} placeholder="e.g. Wella Color Cream" /></div>
-            <div style={Mo.field}><label style={Mo.label}>Category</label>
-              <select style={Mo.input} value={form.category} onChange={e => up('category', e.target.value)}>
-                {CATEGORIES.filter(c => c.id !== 'all').map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-            </div>
-            <div style={Mo.field}><label style={Mo.label}>Unit</label><input style={Mo.input} value={form.unit} onChange={e => up('unit', e.target.value)} placeholder="bottle / ml / g / piece" /></div>
-            <div style={Mo.field}><label style={Mo.label}>Current Quantity</label><input style={Mo.input} type="number" value={form.quantity} onChange={e => up('quantity', e.target.value)} /></div>
-            <div style={Mo.field}><label style={Mo.label}>Min Stock Alert</label><input style={Mo.input} type="number" value={form.minStock} onChange={e => up('minStock', e.target.value)} /></div>
-            <div style={Mo.field}><label style={Mo.label}>Cost Per Unit ({sym})</label><input style={Mo.input} type="number" value={form.costPerUnit} onChange={e => up('costPerUnit', e.target.value)} /></div>
-            <div style={Mo.field}><label style={Mo.label}>Barcode</label><input style={Mo.input} value={form.barcode} onChange={e => up('barcode', e.target.value)} placeholder="Scan or type" /></div>
-            <div style={{ ...Mo.field, gridColumn: '1/-1' }}><label style={Mo.label}>Supplier</label><input style={Mo.input} value={form.supplier} onChange={e => up('supplier', e.target.value)} placeholder="Supplier name" /></div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-            <button type="button" style={Mo.cancelBtn} onClick={onClose}>Cancel</button>
-            <button type="submit" style={Mo.submitBtn}>Add Item →</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// ─── RESTOCK MODAL ────────────────────────────────────────────────────────────
-function RestockModal({ item, onClose, onRestock, sym }) {
-  const [qty, setQty] = useState('')
-  return (
-    <div style={Mo.overlay}>
-      <div style={{ ...Mo.modal, maxWidth: 360 }}>
-        <div style={Mo.header}><div style={Mo.title}>Restock Item</div><button style={Mo.close} onClick={onClose}>✕</button></div>
-        <div style={{ fontSize: 14, color: '#6B6258', marginBottom: 16 }}>{item.name}</div>
-        <div style={{ background: '#F8F5F0', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#6B6258' }}>Current stock</span>
-            <span style={{ fontWeight: 500 }}>{item.quantity} {item.unit}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-            <span style={{ color: '#6B6258' }}>Min stock alert</span>
-            <span style={{ fontWeight: 500 }}>{item.minStock} {item.unit}</span>
-          </div>
-        </div>
-        <div style={Mo.field}>
-          <label style={Mo.label}>Add quantity ({item.unit})</label>
-          <input style={Mo.input} type="number" value={qty} onChange={e => setQty(e.target.value)} placeholder="0" autoFocus />
-        </div>
-        {qty && <div style={{ fontSize: 13, color: '#0F6E56', marginTop: 8 }}>New total: {item.quantity + Number(qty)} {item.unit} · Cost: {sym}{(Number(qty) * item.costPerUnit).toLocaleString()}</div>}
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-          <button style={Mo.cancelBtn} onClick={onClose}>Cancel</button>
-          <button style={Mo.submitBtn} onClick={() => { onRestock(item.id, Number(qty)); onClose() }}>Restock →</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════
 export default function Inventory() {
-  const { currencySymbol, profile } = useAuth()
-  const sym = currencySymbol || profile?.salons?.settings?.currencySymbol || '₹'
-  const [items, setItems] = useState(MOCK_INVENTORY)
-  const [activeCategory, setActiveCategory] = useState('all')
-  const [search, setSearch] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
-  const [restockItem, setRestockItem] = useState(null)
-  const [sortBy, setSortBy] = useState('name')
+  const { user } = useAuth();
 
-  const lowStock = items.filter(i => i.quantity <= i.minStock)
-  const outOfStock = items.filter(i => i.quantity <= 0)
-  const totalValue = items.reduce((s, i) => s + i.quantity * i.costPerUnit, 0)
+  // ── Data ──
+  const [items, setItems]           = useState([]);
+  const [movements, setMovements]   = useState([]);
+  const [restocks, setRestocks]     = useState([]);
+  const [loading, setLoading]       = useState(true);
 
-  const filtered = items.filter(i => {
-    const matchCat = activeCategory === 'all' || i.category === activeCategory
-    const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase()) || i.barcode.toLowerCase().includes(search.toLowerCase())
-    return matchCat && matchSearch
-  }).sort((a, b) => {
-    if (sortBy === 'name') return a.name.localeCompare(b.name)
-    if (sortBy === 'stock') return a.quantity - b.quantity
-    if (sortBy === 'value') return (b.quantity * b.costPerUnit) - (a.quantity * a.costPerUnit)
-    return 0
-  })
+  // ── UI ──
+  const [tab, setTab]               = useState("stock");   // stock | movements | restock
+  const [category, setCategory]     = useState("All");
+  const [search, setSearch]         = useState("");
+  const [filterStatus, setFilterStatus] = useState("all"); // all | low | out
 
-  function handleRestock(id, qty) {
-    setItems(items.map(i => i.id === id ? { ...i, quantity: i.quantity + qty, lastRestocked: new Date().toISOString().split('T')[0] } : i))
+  // ── Add Item Modal ──
+  const [addModal, setAddModal]     = useState(false);
+  const [editItem, setEditItem]     = useState(null);
+  const [itemForm, setItemForm]     = useState(defaultItemForm());
+  const [itemSaving, setItemSaving] = useState(false);
+
+  // ── Stock Update Modal ──
+  const [moveModal, setMoveModal]   = useState(false);
+  const [moveTarget, setMoveTarget] = useState(null);
+  const [moveForm, setMoveForm]     = useState({ type: "restock", quantity: "", reason: "" });
+  const [moveSaving, setMoveSaving] = useState(false);
+
+  // ── Restock Request Modal ──
+  const [restockModal, setRestockModal] = useState(false);
+  const [restockTarget, setRestockTarget] = useState(null);
+  const [restockForm, setRestockForm]   = useState({ requested_qty: "", supplier: "", notes: "" });
+  const [restockSaving, setRestockSaving] = useState(false);
+
+  function defaultItemForm() {
+    return { name: "", category: "Hair", brand: "", unit: "pcs", current_stock: 0, min_stock: 5, max_stock: 100, purchase_price: 0, selling_price: 0, supplier: "", notes: "" };
   }
 
-  function handleAdd(item) { setItems(prev => [item, ...prev]) }
+  // ─── Fetch ───────────────────────────────────────────────────
+  useEffect(() => { fetchAll(); }, []);
 
+  async function fetchAll() {
+    setLoading(true);
+    const [itemsRes, movRes, restockRes] = await Promise.all([
+      supabase.from("inventory").select("*").eq("salon_id", SALON_ID).eq("is_active", true).order("category").order("name"),
+      supabase.from("stock_movements").select("*").eq("salon_id", SALON_ID).order("created_at", { ascending: false }).limit(100),
+      supabase.from("restock_requests").select("*").eq("salon_id", SALON_ID).order("created_at", { ascending: false }),
+    ]);
+    setItems(itemsRes.data || []);
+    setMovements(movRes.data || []);
+    setRestocks(restockRes.data || []);
+    setLoading(false);
+  }
+
+  // ─── Filtered items ──────────────────────────────────────────
+  const filtered = items.filter((it) => {
+    const matchCat = category === "All" || it.category === category;
+    const matchSearch = !search || it.name.toLowerCase().includes(search.toLowerCase()) || (it.brand || "").toLowerCase().includes(search.toLowerCase());
+    const st = stockStatus(it);
+    const matchStatus =
+      filterStatus === "all" ? true :
+      filterStatus === "low" ? st.label === "Low Stock" :
+      filterStatus === "out" ? st.label === "Out of Stock" : true;
+    return matchCat && matchSearch && matchStatus;
+  });
+
+  // ─── Stats ───────────────────────────────────────────────────
+  const lowCount  = items.filter((i) => { const s = stockStatus(i); return s.label === "Low Stock"; }).length;
+  const outCount  = items.filter((i) => { const s = stockStatus(i); return s.label === "Out of Stock"; }).length;
+  const totalValue = items.reduce((s, i) => s + Number(i.current_stock) * Number(i.purchase_price), 0);
+  const pendingRestocks = restocks.filter((r) => r.status === "pending").length;
+
+  // ─── Save Item ───────────────────────────────────────────────
+  async function saveItem() {
+    if (!itemForm.name.trim()) return alert("Item name is required.");
+    setItemSaving(true);
+    try {
+      const payload = { ...itemForm, salon_id: SALON_ID, updated_at: new Date().toISOString() };
+      if (editItem) {
+        await supabase.from("inventory").update(payload).eq("id", editItem.id);
+      } else {
+        const { data: newItem } = await supabase.from("inventory").insert(payload).select().single();
+        // Log initial stock movement if stock > 0
+        if (Number(itemForm.current_stock) > 0) {
+          await supabase.from("stock_movements").insert({
+            salon_id: SALON_ID,
+            item_id: newItem.id,
+            item_name: newItem.name,
+            type: "restock",
+            quantity: Number(itemForm.current_stock),
+            stock_before: 0,
+            stock_after: Number(itemForm.current_stock),
+            reason: "Initial stock entry",
+            performed_by: user?.id,
+          });
+        }
+      }
+      await fetchAll();
+      setAddModal(false);
+      setEditItem(null);
+      setItemForm(defaultItemForm());
+    } catch (e) { alert("Error: " + e.message); }
+    setItemSaving(false);
+  }
+
+  // ─── Record Stock Movement ───────────────────────────────────
+  async function recordMovement() {
+    const qty = Number(moveForm.quantity);
+    if (!qty || qty <= 0) return alert("Enter a valid quantity.");
+    setMoveSaving(true);
+    try {
+      const item = moveTarget;
+      const stockBefore = Number(item.current_stock);
+      const isOut = moveForm.type === "usage" || moveForm.type === "waste";
+      const delta = isOut ? -qty : qty;
+      const stockAfter = Math.max(0, stockBefore + delta);
+
+      await supabase.from("stock_movements").insert({
+        salon_id: SALON_ID,
+        item_id: item.id,
+        item_name: item.name,
+        type: moveForm.type,
+        quantity: delta,
+        stock_before: stockBefore,
+        stock_after: stockAfter,
+        reason: moveForm.reason || null,
+        performed_by: user?.id,
+      });
+
+      await supabase.from("inventory").update({
+        current_stock: stockAfter,
+        updated_at: new Date().toISOString(),
+      }).eq("id", item.id);
+
+      await fetchAll();
+      setMoveModal(false);
+      setMoveForm({ type: "restock", quantity: "", reason: "" });
+    } catch (e) { alert("Error: " + e.message); }
+    setMoveSaving(false);
+  }
+
+  // ─── Submit Restock Request ──────────────────────────────────
+  async function submitRestockRequest() {
+    const qty = Number(restockForm.requested_qty);
+    if (!qty || qty <= 0) return alert("Enter a valid quantity.");
+    setRestockSaving(true);
+    try {
+      await supabase.from("restock_requests").insert({
+        salon_id: SALON_ID,
+        item_id: restockTarget.id,
+        item_name: restockTarget.name,
+        requested_qty: qty,
+        current_stock: restockTarget.current_stock,
+        status: "pending",
+        supplier: restockForm.supplier || restockTarget.supplier || null,
+        notes: restockForm.notes || null,
+        requested_by: user?.id,
+      });
+      await fetchAll();
+      setRestockModal(false);
+      setRestockForm({ requested_qty: "", supplier: "", notes: "" });
+    } catch (e) { alert("Error: " + e.message); }
+    setRestockSaving(false);
+  }
+
+  // ─── Update Restock Status ───────────────────────────────────
+  async function updateRestockStatus(id, status, itemId, qty) {
+    await supabase.from("restock_requests").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
+    // If marked received, update stock
+    if (status === "received") {
+      const item = items.find((i) => i.id === itemId);
+      if (item) {
+        const stockBefore = Number(item.current_stock);
+        const stockAfter = stockBefore + Number(qty);
+        await supabase.from("inventory").update({ current_stock: stockAfter, updated_at: new Date().toISOString() }).eq("id", itemId);
+        await supabase.from("stock_movements").insert({
+          salon_id: SALON_ID, item_id: itemId, item_name: item.name,
+          type: "restock", quantity: Number(qty), stock_before: stockBefore, stock_after: stockAfter,
+          reason: "Restock request fulfilled", performed_by: user?.id,
+        });
+      }
+    }
+    await fetchAll();
+  }
+
+  // ─── Delete item ─────────────────────────────────────────────
+  async function deleteItem(id) {
+    if (!window.confirm("Deactivate this item?")) return;
+    await supabase.from("inventory").update({ is_active: false }).eq("id", id);
+    await fetchAll();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════
   return (
-    <div style={S.wrap}>
-      {/* Header */}
+    <div style={S.page}>
+
+      {/* ── Header ── */}
       <div style={S.header}>
         <div>
-          <div style={S.title}>Inventory Management</div>
-          <div style={S.sub}>Track products, stock levels and usage per service</div>
+          <div style={S.title}>📦 Inventory</div>
+          <div style={S.subtitle}>Stock · Movements · Restock Requests</div>
         </div>
-        <button style={S.addBtn} onClick={() => setShowAdd(true)}>+ Add Item</button>
+        <button style={S.btnPrimary} onClick={() => { setEditItem(null); setItemForm(defaultItemForm()); setAddModal(true); }}>
+          + Add Item
+        </button>
       </div>
 
-      {/* Stats */}
-      <div style={S.statsRow}>
+      {/* ── Stats ── */}
+      <div style={S.statsGrid}>
         {[
-          { label: 'Total Products', value: items.length, color: '#185FA5' },
-          { label: 'Low Stock Alerts', value: lowStock.length, color: '#BA7517' },
-          { label: 'Out of Stock', value: outOfStock.length, color: '#993C1D' },
-          { label: 'Total Stock Value', value: `${sym}${Math.round(totalValue).toLocaleString()}`, color: '#0F6E56' },
-        ].map(s => (
-          <div key={s.label} style={S.statCard}>
-            <div style={{ fontSize: 10, color: '#B0A89F', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: s.color, fontFamily: "'Cormorant Garamond', serif" }}>{s.value}</div>
+          { icon: "📦", label: "Total Items",     value: items.length,    color: "#6366f1" },
+          { icon: "⚠️",  label: "Low Stock",       value: lowCount,        color: "#f59e0b", alert: lowCount > 0 },
+          { icon: "🚫", label: "Out of Stock",    value: outCount,        color: "#ef4444", alert: outCount > 0 },
+          { icon: "🔄", label: "Pending Restocks",value: pendingRestocks, color: "#be185d", alert: pendingRestocks > 0 },
+          { icon: "💰", label: "Stock Value",     value: fmt(totalValue), color: "#10b981" },
+        ].map((s) => (
+          <div key={s.label} style={{ ...S.statCard, ...(s.alert ? S.statCardAlert : {}) }}>
+            <div style={S.statIcon}>{s.icon}</div>
+            <div>
+              <div style={{ ...S.statValue, color: s.color }}>{s.value}</div>
+              <div style={S.statLabel}>{s.label}</div>
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Low stock alerts */}
-      {lowStock.length > 0 && (
-        <div style={S.alertBox}>
-          <span style={{ fontWeight: 500 }}>⚠️ Low Stock Alert</span>
-          <span style={{ color: '#6B4C1A', fontSize: 13 }}>
-            {lowStock.map(i => i.name).join(' · ')}
-          </span>
-          <span style={{ fontSize: 12, color: '#BA7517' }}>Restock soon!</span>
+      {/* ── Tabs ── */}
+      <div style={S.tabRow}>
+        {[
+          { key: "stock",     label: "📋 Stock List" },
+          { key: "movements", label: "📈 Movements" },
+          { key: "restock",   label: `🔄 Restock Requests ${pendingRestocks > 0 ? `(${pendingRestocks})` : ""}` },
+        ].map((t) => (
+          <button key={t.key} style={{ ...S.tab, ...(tab === t.key ? S.tabActive : {}) }} onClick={() => setTab(t.key)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={S.loading}>Loading inventory…</div>
+      ) : (
+        <>
+          {/* ══════════════════════════════════════════════════
+              STOCK LIST TAB
+          ══════════════════════════════════════════════════ */}
+          {tab === "stock" && (
+            <div>
+              {/* Filters */}
+              <div style={S.filterBar}>
+                <input style={S.searchInput} placeholder="Search item or brand…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <div style={S.filterChips}>
+                  {["all", "low", "out"].map((f) => (
+                    <button key={f} style={{ ...S.chip, ...(filterStatus === f ? S.chipActive : {}) }} onClick={() => setFilterStatus(f)}>
+                      {f === "all" ? "All" : f === "low" ? "⚠️ Low" : "🚫 Out"}
+                    </button>
+                  ))}
+                </div>
+                <div style={S.catScroll}>
+                  {CATEGORIES.map((c) => (
+                    <button key={c} style={{ ...S.chip, ...(category === c ? S.chipActive : {}) }} onClick={() => setCategory(c)}>{c}</button>
+                  ))}
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div style={S.empty}>No items found. Add your first inventory item!</div>
+              ) : (
+                <div style={S.grid}>
+                  {filtered.map((item) => {
+                    const st = stockStatus(item);
+                    return (
+                      <div key={item.id} style={S.itemCard}>
+                        {/* Stock bar */}
+                        <div style={S.barTrack}>
+                          <div style={{ ...S.barFill, width: `${st.bar}%`, background: st.color }} />
+                        </div>
+
+                        <div style={S.itemTop}>
+                          <div style={{ flex: 1 }}>
+                            <div style={S.itemName}>{item.name}</div>
+                            <div style={S.itemMeta}>{item.brand || "—"} · {item.category}</div>
+                          </div>
+                          <span style={{ ...S.badge, background: st.bg, color: st.color }}>{st.label}</span>
+                        </div>
+
+                        <div style={S.stockDisplay}>
+                          <div style={S.stockMain}>
+                            <span style={{ ...S.stockNum, color: st.color }}>{fmtN(item.current_stock)}</span>
+                            <span style={S.stockUnit}>{item.unit}</span>
+                          </div>
+                          <div style={S.stockThresholds}>
+                            <span style={{ color: "#f59e0b" }}>min {fmtN(item.min_stock)}</span>
+                            <span style={{ color: "#9ca3af", margin: "0 4px" }}>·</span>
+                            <span style={{ color: "#9ca3af" }}>max {fmtN(item.max_stock)}</span>
+                          </div>
+                        </div>
+
+                        {item.purchase_price > 0 && (
+                          <div style={S.itemPriceRow}>
+                            <span style={S.priceTag}>Buy: {fmt(item.purchase_price)}/{item.unit}</span>
+                            <span style={S.priceTag}>Value: {fmt(Number(item.current_stock) * Number(item.purchase_price))}</span>
+                          </div>
+                        )}
+
+                        {item.supplier && (
+                          <div style={S.supplierRow}>🏪 {item.supplier}</div>
+                        )}
+
+                        {/* Actions */}
+                        <div style={S.itemActions}>
+                          <button style={S.actionBtn} onClick={() => { setMoveTarget(item); setMoveForm({ type: "restock", quantity: "", reason: "" }); setMoveModal(true); }}>
+                            📦 Stock In/Out
+                          </button>
+                          <button style={{ ...S.actionBtn, background: "#fef3c7", color: "#92400e" }}
+                            onClick={() => { setRestockTarget(item); setRestockForm({ requested_qty: Math.max(0, Number(item.max_stock) - Number(item.current_stock)), supplier: item.supplier || "", notes: "" }); setRestockModal(true); }}>
+                            🔄 Request
+                          </button>
+                          <button style={{ ...S.actionBtn, background: "#f3f4f6", color: "#374151" }}
+                            onClick={() => { setEditItem(item); setItemForm({ name: item.name, category: item.category, brand: item.brand || "", unit: item.unit, current_stock: item.current_stock, min_stock: item.min_stock, max_stock: item.max_stock, purchase_price: item.purchase_price, selling_price: item.selling_price, supplier: item.supplier || "", notes: item.notes || "" }); setAddModal(true); }}>
+                            ✏️
+                          </button>
+                          <button style={{ ...S.actionBtn, background: "#fee2e2", color: "#dc2626" }} onClick={() => deleteItem(item.id)}>
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════
+              MOVEMENTS TAB
+          ══════════════════════════════════════════════════ */}
+          {tab === "movements" && (
+            <div style={S.card}>
+              <div style={S.cardTitle}>📈 Stock Movement History</div>
+              {movements.length === 0 ? (
+                <div style={S.empty}>No movements recorded yet.</div>
+              ) : (
+                <div>
+                  <div style={S.tableHead}>
+                    <div style={{ flex: 2 }}>Item</div>
+                    <div style={{ flex: 1 }}>Type</div>
+                    <div style={{ flex: 1, textAlign: "right" }}>Change</div>
+                    <div style={{ flex: 1, textAlign: "right" }}>Before</div>
+                    <div style={{ flex: 1, textAlign: "right" }}>After</div>
+                    <div style={{ flex: 2 }}>Reason</div>
+                    <div style={{ flex: 1.5 }}>When</div>
+                  </div>
+                  {movements.map((m) => {
+                    const mt = MOVEMENT_TYPES.find((t) => t.key === m.type) || MOVEMENT_TYPES[0];
+                    return (
+                      <div key={m.id} style={S.tableRow}>
+                        <div style={{ flex: 2, fontWeight: 600 }}>{m.item_name}</div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ ...S.badge, background: mt.color + "20", color: mt.color }}>
+                            {mt.icon} {mt.label}
+                          </span>
+                        </div>
+                        <div style={{ flex: 1, textAlign: "right", fontWeight: 700, color: Number(m.quantity) > 0 ? "#10b981" : "#ef4444" }}>
+                          {Number(m.quantity) > 0 ? "+" : ""}{fmtN(m.quantity)}
+                        </div>
+                        <div style={{ flex: 1, textAlign: "right", color: "#9ca3af" }}>{fmtN(m.stock_before)}</div>
+                        <div style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{fmtN(m.stock_after)}</div>
+                        <div style={{ flex: 2, color: "#6b7280", fontSize: 13 }}>{m.reason || "—"}</div>
+                        <div style={{ flex: 1.5, color: "#9ca3af", fontSize: 12 }}>
+                          {new Date(m.created_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════
+              RESTOCK REQUESTS TAB
+          ══════════════════════════════════════════════════ */}
+          {tab === "restock" && (
+            <div style={S.card}>
+              <div style={S.cardTitle}>🔄 Restock Requests</div>
+              {restocks.length === 0 ? (
+                <div style={S.empty}>No restock requests yet. Click "Request" on any low stock item.</div>
+              ) : (
+                <div>
+                  <div style={S.tableHead}>
+                    <div style={{ flex: 2 }}>Item</div>
+                    <div style={{ flex: 1, textAlign: "right" }}>Current</div>
+                    <div style={{ flex: 1, textAlign: "right" }}>Requested</div>
+                    <div style={{ flex: 1.5 }}>Supplier</div>
+                    <div style={{ flex: 1, textAlign: "center" }}>Status</div>
+                    <div style={{ flex: 2 }}>Actions</div>
+                    <div style={{ flex: 1.5 }}>Date</div>
+                  </div>
+                  {restocks.map((r) => {
+                    const statusStyles = {
+                      pending:   { bg: "#fef3c7", color: "#92400e" },
+                      ordered:   { bg: "#dbeafe", color: "#1e40af" },
+                      received:  { bg: "#d1fae5", color: "#065f46" },
+                      cancelled: { bg: "#f3f4f6", color: "#6b7280" },
+                    };
+                    const sc = statusStyles[r.status] || statusStyles.pending;
+                    return (
+                      <div key={r.id} style={S.tableRow}>
+                        <div style={{ flex: 2, fontWeight: 600 }}>{r.item_name}</div>
+                        <div style={{ flex: 1, textAlign: "right", color: "#ef4444" }}>{fmtN(r.current_stock)}</div>
+                        <div style={{ flex: 1, textAlign: "right", fontWeight: 700, color: "#10b981" }}>{fmtN(r.requested_qty)}</div>
+                        <div style={{ flex: 1.5, color: "#6b7280", fontSize: 13 }}>{r.supplier || "—"}</div>
+                        <div style={{ flex: 1, textAlign: "center" }}>
+                          <span style={{ ...S.badge, background: sc.bg, color: sc.color, textTransform: "capitalize" }}>{r.status}</span>
+                        </div>
+                        <div style={{ flex: 2, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {r.status === "pending" && (
+                            <>
+                              <button style={S.tinyBtn} onClick={() => updateRestockStatus(r.id, "ordered", r.item_id, r.requested_qty)}>Mark Ordered</button>
+                              <button style={{ ...S.tinyBtn, background: "#fee2e2", color: "#dc2626" }} onClick={() => updateRestockStatus(r.id, "cancelled", r.item_id, r.requested_qty)}>Cancel</button>
+                            </>
+                          )}
+                          {r.status === "ordered" && (
+                            <button style={{ ...S.tinyBtn, background: "#d1fae5", color: "#065f46" }} onClick={() => updateRestockStatus(r.id, "received", r.item_id, r.requested_qty)}>✅ Mark Received</button>
+                          )}
+                          {(r.status === "received" || r.status === "cancelled") && (
+                            <span style={{ color: "#9ca3af", fontSize: 12 }}>—</span>
+                          )}
+                        </div>
+                        <div style={{ flex: 1.5, color: "#9ca3af", fontSize: 12 }}>
+                          {new Date(r.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          ADD / EDIT ITEM MODAL
+      ══════════════════════════════════════════════════ */}
+      {addModal && (
+        <div style={S.overlay} onClick={() => setAddModal(false)}>
+          <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <div style={S.modalTitle}>{editItem ? "✏️ Edit Item" : "➕ Add Inventory Item"}</div>
+              <button style={S.closeBtn} onClick={() => setAddModal(false)}>✕</button>
+            </div>
+
+            <div style={S.formGrid}>
+              <div style={S.formGroup}>
+                <label style={S.label}>Item Name *</label>
+                <input style={S.input} placeholder="e.g. Keratin Treatment" value={itemForm.name} onChange={(e) => setItemForm((f) => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Brand</label>
+                <input style={S.input} placeholder="e.g. Schwarzkopf" value={itemForm.brand} onChange={(e) => setItemForm((f) => ({ ...f, brand: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Category</label>
+                <select style={S.select} value={itemForm.category} onChange={(e) => setItemForm((f) => ({ ...f, category: e.target.value }))}>
+                  {CATEGORIES.filter((c) => c !== "All").map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Unit</label>
+                <select style={S.select} value={itemForm.unit} onChange={(e) => setItemForm((f) => ({ ...f, unit: e.target.value }))}>
+                  {UNITS.map((u) => <option key={u}>{u}</option>)}
+                </select>
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Current Stock</label>
+                <input style={S.input} type="number" value={itemForm.current_stock} onChange={(e) => setItemForm((f) => ({ ...f, current_stock: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Min Stock (Low Alert)</label>
+                <input style={S.input} type="number" value={itemForm.min_stock} onChange={(e) => setItemForm((f) => ({ ...f, min_stock: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Max Stock</label>
+                <input style={S.input} type="number" value={itemForm.max_stock} onChange={(e) => setItemForm((f) => ({ ...f, max_stock: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Purchase Price (₹)</label>
+                <input style={S.input} type="number" value={itemForm.purchase_price} onChange={(e) => setItemForm((f) => ({ ...f, purchase_price: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Supplier</label>
+                <input style={S.input} placeholder="e.g. Beauty Wholesale" value={itemForm.supplier} onChange={(e) => setItemForm((f) => ({ ...f, supplier: e.target.value }))} />
+              </div>
+              <div style={S.formGroup}>
+                <label style={S.label}>Notes</label>
+                <input style={S.input} placeholder="Any notes…" value={itemForm.notes} onChange={(e) => setItemForm((f) => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+
+            <button style={{ ...S.btnPrimary, width: "100%", justifyContent: "center", marginTop: 20 }} disabled={itemSaving} onClick={saveItem}>
+              {itemSaving ? "Saving…" : editItem ? "✅ Update Item" : "✅ Add to Inventory"}
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Filters */}
-      <div style={S.filterRow}>
-        <div style={S.catPills}>
-          {CATEGORIES.map(c => (
-            <button key={c.id} style={{ ...S.catBtn, ...(activeCategory === c.id ? S.catBtnOn : {}) }} onClick={() => setActiveCategory(c.id)}>
-              {c.icon} {c.label}
-              {c.id !== 'all' && <span style={S.catCount}>{items.filter(i => i.category === c.id).length}</span>}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <input style={S.search} placeholder="🔍  Search or scan barcode..." value={search} onChange={e => setSearch(e.target.value)} />
-          <select style={S.sortSelect} value={sortBy} onChange={e => setSortBy(e.target.value)}>
-            <option value="name">Sort: Name</option>
-            <option value="stock">Sort: Stock Level</option>
-            <option value="value">Sort: Value</option>
-          </select>
-        </div>
-      </div>
+      {/* ══════════════════════════════════════════════════
+          STOCK IN / OUT MODAL
+      ══════════════════════════════════════════════════ */}
+      {moveModal && moveTarget && (
+        <div style={S.overlay} onClick={() => setMoveModal(false)}>
+          <div style={{ ...S.modal, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <div style={S.modalTitle}>📦 Update Stock</div>
+              <button style={S.closeBtn} onClick={() => setMoveModal(false)}>✕</button>
+            </div>
 
-      {/* Inventory table */}
-      <div style={S.table}>
-        <div style={S.tableHeader}>
-          <span style={{ flex: 3 }}>Product</span>
-          <span style={{ flex: 1, textAlign: 'center' }}>Category</span>
-          <span style={{ flex: 1, textAlign: 'center' }}>Stock</span>
-          <span style={{ flex: 1, textAlign: 'center' }}>Used/Month</span>
-          <span style={{ flex: 1, textAlign: 'right' }}>Cost/Unit</span>
-          <span style={{ flex: 1, textAlign: 'center' }}>Status</span>
-          <span style={{ flex: 1, textAlign: 'center' }}>Action</span>
+            <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontWeight: 700 }}>{moveTarget.name}</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>Current: <strong>{fmtN(moveTarget.current_stock)} {moveTarget.unit}</strong></div>
+            </div>
+
+            <div style={S.label}>Movement Type</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+              {MOVEMENT_TYPES.map((mt) => (
+                <button key={mt.key}
+                  style={{ padding: "10px", borderRadius: 8, border: `2px solid ${moveForm.type === mt.key ? mt.color : "#e5e7eb"}`, background: moveForm.type === mt.key ? mt.color + "15" : "#fff", cursor: "pointer", fontWeight: moveForm.type === mt.key ? 700 : 500, color: moveForm.type === mt.key ? mt.color : "#374151", fontSize: 13 }}
+                  onClick={() => setMoveForm((f) => ({ ...f, type: mt.key }))}>
+                  {mt.icon} {mt.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={S.formGroup}>
+              <label style={S.label}>Quantity ({moveTarget.unit})</label>
+              <input style={S.input} type="number" placeholder="e.g. 100" value={moveForm.quantity} onChange={(e) => setMoveForm((f) => ({ ...f, quantity: e.target.value }))} />
+            </div>
+
+            {moveForm.quantity > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", background: "#f9fafb", borderRadius: 8, padding: "10px 14px", margin: "10px 0", fontSize: 14 }}>
+                <span>New Stock:</span>
+                <strong style={{ color: "#10b981" }}>
+                  {fmtN(Math.max(0, Number(moveTarget.current_stock) + (["usage", "waste"].includes(moveForm.type) ? -Number(moveForm.quantity) : Number(moveForm.quantity))))} {moveTarget.unit}
+                </strong>
+              </div>
+            )}
+
+            <div style={S.formGroup}>
+              <label style={S.label}>Reason (optional)</label>
+              <input style={S.input} placeholder="e.g. Used for 3 clients today" value={moveForm.reason} onChange={(e) => setMoveForm((f) => ({ ...f, reason: e.target.value }))} />
+            </div>
+
+            <button style={{ ...S.btnPrimary, width: "100%", justifyContent: "center", marginTop: 12 }} disabled={moveSaving} onClick={recordMovement}>
+              {moveSaving ? "Saving…" : "✅ Confirm Update"}
+            </button>
+          </div>
         </div>
-        {filtered.map(item => {
-          const status = getStockStatus(item)
-          const cat = CATEGORIES.find(c => c.id === item.category)
-          return (
-            <div key={item.id} style={{ ...S.row, background: item.quantity <= item.minStock ? '#FFFBF5' : '#fff' }}>
-              <div style={{ flex: 3 }}>
-                <div style={S.itemName}>{item.name}</div>
-                <div style={S.itemMeta}>🏷 {item.barcode} · {item.supplier}</div>
-              </div>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <span style={S.catTag}>{cat?.icon} {cat?.label}</span>
-              </div>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: item.quantity <= item.minStock ? '#BA7517' : '#1A1208' }}>
-                  {item.quantity}
-                </div>
-                <div style={{ fontSize: 10, color: '#B0A89F' }}>{item.unit}</div>
-                <div style={{ fontSize: 9, color: '#B0A89F' }}>min: {item.minStock}</div>
-              </div>
-              <div style={{ flex: 1, textAlign: 'center', fontSize: 13, color: '#6B6258' }}>
-                {item.usedThisMonth} {item.unit}
-              </div>
-              <div style={{ flex: 1, textAlign: 'right', fontSize: 13, fontWeight: 500, color: '#1A1208' }}>
-                {sym}{item.costPerUnit.toLocaleString()}
-              </div>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 10, background: status.bg, color: status.color, fontWeight: 500 }}>
-                  {status.label}
-                </span>
-              </div>
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <button style={S.restockBtn} onClick={() => setRestockItem(item)}>+ Restock</button>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          RESTOCK REQUEST MODAL
+      ══════════════════════════════════════════════════ */}
+      {restockModal && restockTarget && (
+        <div style={S.overlay} onClick={() => setRestockModal(false)}>
+          <div style={{ ...S.modal, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalHeader}>
+              <div style={S.modalTitle}>🔄 Request Restock</div>
+              <button style={S.closeBtn} onClick={() => setRestockModal(false)}>✕</button>
+            </div>
+
+            <div style={{ background: "#fef3c7", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontWeight: 700 }}>{restockTarget.name}</div>
+              <div style={{ fontSize: 13, color: "#92400e" }}>
+                Current: <strong>{fmtN(restockTarget.current_stock)} {restockTarget.unit}</strong> · Min: {fmtN(restockTarget.min_stock)}
               </div>
             </div>
-          )
-        })}
-        {filtered.length === 0 && <div style={S.empty}>No items found</div>}
-      </div>
 
-      {showAdd && <AddItemModal onClose={() => setShowAdd(false)} onAdd={handleAdd} sym={sym} />}
-      {restockItem && <RestockModal item={restockItem} onClose={() => setRestockItem(null)} onRestock={handleRestock} sym={sym} />}
+            <div style={S.formGroup}>
+              <label style={S.label}>Quantity to Order ({restockTarget.unit})</label>
+              <input style={S.input} type="number" value={restockForm.requested_qty} onChange={(e) => setRestockForm((f) => ({ ...f, requested_qty: e.target.value }))} />
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Supplier</label>
+              <input style={S.input} placeholder="e.g. Beauty Wholesale" value={restockForm.supplier} onChange={(e) => setRestockForm((f) => ({ ...f, supplier: e.target.value }))} />
+            </div>
+            <div style={S.formGroup}>
+              <label style={S.label}>Notes</label>
+              <input style={S.input} placeholder="e.g. Urgent — needed by Friday" value={restockForm.notes} onChange={(e) => setRestockForm((f) => ({ ...f, notes: e.target.value }))} />
+            </div>
+
+            <button style={{ ...S.btnPrimary, width: "100%", justifyContent: "center", marginTop: 16 }} disabled={restockSaving} onClick={submitRestockRequest}>
+              {restockSaving ? "Submitting…" : "📋 Submit Request"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
-  )
+  );
 }
 
-// ─── STYLES ───────────────────────────────────────────────────────────────────
-const INK = '#1A1208', STONE = '#6B6258', MIST = '#F8F5F0', ROSE = '#8B3A52'
-
+// ═══════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════
 const S = {
-  wrap: { fontFamily: "'DM Sans', sans-serif" },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 600, color: INK },
-  sub: { fontSize: 12, color: STONE, marginTop: 3 },
-  addBtn: { padding: '9px 18px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 },
-  statCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 10, padding: '12px 16px' },
-  alertBox: { display: 'flex', alignItems: 'center', gap: 12, background: '#FAEEDA', border: '0.5px solid #F5DFA0', borderRadius: 10, padding: '10px 16px', marginBottom: 14, flexWrap: 'wrap' },
-  filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' },
-  catPills: { display: 'flex', gap: 6, flexWrap: 'wrap' },
-  catBtn: { padding: '5px 12px', border: '0.5px solid #E8E0D8', borderRadius: 20, fontSize: 12, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', color: STONE, display: 'flex', alignItems: 'center', gap: 4 },
-  catBtnOn: { background: ROSE, color: '#fff', border: `0.5px solid ${ROSE}` },
-  catCount: { background: 'rgba(255,255,255,0.3)', borderRadius: 10, padding: '0 5px', fontSize: 10 },
-  search: { padding: '8px 14px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fff', width: 220 },
-  sortSelect: { padding: '8px 12px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fff', color: INK },
-  table: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 14, overflow: 'hidden' },
-  tableHeader: { display: 'flex', padding: '10px 16px', background: MIST, fontSize: 10, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.5px' },
-  row: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '0.5px solid #F8F5F0' },
-  itemName: { fontSize: 13, fontWeight: 500, color: INK, marginBottom: 2 },
-  itemMeta: { fontSize: 11, color: STONE },
-  catTag: { fontSize: 11, color: STONE },
-  restockBtn: { padding: '4px 10px', background: '#E1F5EE', color: '#0F6E56', border: 'none', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 },
-  empty: { textAlign: 'center', color: '#B0A89F', padding: 40, fontSize: 13 },
-}
-
-const Mo = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 },
-  modal: { background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 520, boxShadow: '0 8px 48px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: INK },
-  close: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: STONE },
-  form: { display: 'flex', flexDirection: 'column', gap: 12 },
-  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
-  field: { display: 'flex', flexDirection: 'column', gap: 5 },
-  label: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.3px' },
-  input: { padding: '9px 12px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#FDFAF8', color: INK },
-  cancelBtn: { padding: '9px 18px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
-  submitBtn: { padding: '9px 20px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-}
+  page:        { padding: "24px", maxWidth: 1400, margin: "0 auto", fontFamily: "'Segoe UI', sans-serif", color: "#1a1a1a" },
+  header:      { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 },
+  title:       { fontSize: 26, fontWeight: 800, letterSpacing: "-0.5px" },
+  subtitle:    { color: "#9ca3af", fontSize: 14, marginTop: 2 },
+  statsGrid:   { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 },
+  statCard:    { background: "#fff", borderRadius: 12, padding: "14px 18px", border: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" },
+  statCardAlert:{ border: "1px solid #fcd34d", background: "#fffbeb" },
+  statIcon:    { fontSize: 24 },
+  statValue:   { fontSize: 20, fontWeight: 800 },
+  statLabel:   { fontSize: 11, color: "#9ca3af", marginTop: 1 },
+  tabRow:      { display: "flex", gap: 4, marginBottom: 20, background: "#f3f4f6", padding: 4, borderRadius: 10, width: "fit-content" },
+  tab:         { padding: "8px 18px", borderRadius: 7, border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: "#6b7280", fontWeight: 500 },
+  tabActive:   { background: "#fff", color: "#be185d", fontWeight: 700, boxShadow: "0 1px 4px rgba(0,0,0,0.1)" },
+  filterBar:   { display: "flex", gap: 10, marginBottom: 16, alignItems: "center", flexWrap: "wrap" },
+  searchInput: { flex: 1, minWidth: 200, padding: "9px 14px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none" },
+  filterChips: { display: "flex", gap: 6 },
+  catScroll:   { display: "flex", gap: 6, flexWrap: "wrap" },
+  chip:        { padding: "6px 14px", borderRadius: 20, border: "1px solid #e5e7eb", background: "#fff", cursor: "pointer", fontSize: 12, fontWeight: 500, color: "#6b7280" },
+  chipActive:  { background: "#be185d", color: "#fff", border: "1px solid #be185d", fontWeight: 700 },
+  grid:        { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 },
+  itemCard:    { background: "#fff", borderRadius: 14, border: "1px solid #f3f4f6", padding: "16px 18px", boxShadow: "0 1px 6px rgba(0,0,0,0.05)", overflow: "hidden", position: "relative" },
+  barTrack:    { position: "absolute", top: 0, left: 0, right: 0, height: 4, background: "#f3f4f6" },
+  barFill:     { height: "100%", borderRadius: 2, transition: "width 0.4s ease" },
+  itemTop:     { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: 6, marginBottom: 10 },
+  itemName:    { fontWeight: 700, fontSize: 15, color: "#1a1a1a" },
+  itemMeta:    { fontSize: 12, color: "#9ca3af", marginTop: 2 },
+  stockDisplay:{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 8 },
+  stockMain:   { display: "flex", alignItems: "baseline", gap: 4 },
+  stockNum:    { fontSize: 28, fontWeight: 800, lineHeight: 1 },
+  stockUnit:   { fontSize: 13, color: "#9ca3af" },
+  stockThresholds: { fontSize: 12, textAlign: "right" },
+  itemPriceRow:{ display: "flex", gap: 8, marginBottom: 6 },
+  priceTag:    { fontSize: 11, color: "#6b7280", background: "#f9fafb", padding: "2px 8px", borderRadius: 4 },
+  supplierRow: { fontSize: 12, color: "#9ca3af", marginBottom: 10 },
+  itemActions: { display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" },
+  actionBtn:   { flex: 1, padding: "7px 6px", borderRadius: 7, border: "none", background: "#fdf2f8", color: "#be185d", cursor: "pointer", fontSize: 12, fontWeight: 600 },
+  badge:       { display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700 },
+  loading:     { textAlign: "center", padding: 60, color: "#9ca3af" },
+  empty:       { textAlign: "center", padding: 60, color: "#9ca3af", background: "#fff", borderRadius: 12, border: "1px solid #f3f4f6" },
+  card:        { background: "#fff", borderRadius: 12, border: "1px solid #f3f4f6", padding: "20px 24px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" },
+  cardTitle:   { fontSize: 15, fontWeight: 700, marginBottom: 16 },
+  tableHead:   { display: "flex", padding: "10px 16px", background: "#fdf2f8", borderRadius: "8px 8px 0 0", fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" },
+  tableRow:    { display: "flex", padding: "12px 16px", borderBottom: "1px solid #f9fafb", fontSize: 13, alignItems: "center", gap: 4 },
+  overlay:     { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(2px)" },
+  modal:       { background: "#fff", borderRadius: 16, padding: "28px 32px", width: 600, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  modalTitle:  { fontWeight: 700, fontSize: 18 },
+  closeBtn:    { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9ca3af" },
+  formGrid:    { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 },
+  formGroup:   { display: "flex", flexDirection: "column" },
+  label:       { fontSize: 12, color: "#6b7280", marginBottom: 4, fontWeight: 500 },
+  input:       { padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", width: "100%", boxSizing: "border-box" },
+  select:      { padding: "9px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", background: "#fff", width: "100%", boxSizing: "border-box" },
+  btnPrimary:  { display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 8, border: "none", background: "#be185d", color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer" },
+  tinyBtn:     { padding: "5px 10px", borderRadius: 6, border: "none", background: "#dbeafe", color: "#1e40af", fontSize: 11, cursor: "pointer", fontWeight: 600 },
+};

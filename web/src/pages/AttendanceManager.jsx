@@ -13,19 +13,37 @@ const STATUS_LABELS = {
   present: '✅ Present', absent: '❌ Absent', half: '🌓 Half Day', leave: '🏖 Leave'
 }
 
+// Get current time as HH:MM:SS string for Supabase TIME column
+function getNowTime() {
+  const d = new Date()
+  return d.getHours().toString().padStart(2,'0') + ':' +
+         d.getMinutes().toString().padStart(2,'0') + ':00'
+}
+
+// Display time from HH:MM:SS string
+function displayTime(t) {
+  if (!t) return '—'
+  try {
+    const [h, m] = t.split(':')
+    const hour = parseInt(h)
+    const ampm = hour >= 12 ? 'pm' : 'am'
+    const h12  = hour % 12 || 12
+    return h12 + ':' + m + ' ' + ampm
+  } catch { return t }
+}
+
 export default function AttendanceManager() {
   const { salonId } = useAuth()
-  const today = new Date().toISOString().split('T')[0]
-  const currentMonth = new Date().toISOString().slice(0, 7)
+  const today        = new Date().toISOString().split('T')[0]
+  const currentMonth = today.slice(0, 7)
 
-  const [employees, setEmployees]   = useState([])
-  const [attendance, setAttendance] = useState([]) // today's records
-  const [monthly, setMonthly]       = useState([]) // monthly records
-  const [loading, setLoading]       = useState(true)
-  const [saving, setSaving]         = useState({})
-  const [view, setView]             = useState('today') // 'today' | 'monthly'
-  const [selectedEmp, setSelectedEmp] = useState(null)
-  const [month, setMonth]           = useState(currentMonth)
+  const [employees,   setEmployees]   = useState([])
+  const [attendance,  setAttendance]  = useState([])
+  const [monthly,     setMonthly]     = useState([])
+  const [loading,     setLoading]     = useState(true)
+  const [saving,      setSaving]      = useState({})
+  const [view,        setView]        = useState('today')
+  const [month,       setMonth]       = useState(currentMonth)
 
   useEffect(() => { if (salonId) fetchAll() }, [salonId])
   useEffect(() => { if (salonId && view === 'monthly') fetchMonthly() }, [month, view, salonId])
@@ -33,23 +51,19 @@ export default function AttendanceManager() {
   async function fetchAll() {
     setLoading(true)
     try {
-      // Fetch employees
       const { data: emps } = await supabase
         .from('employees')
         .select('id, name, role, status')
         .eq('salon_id', salonId)
         .eq('status', 'active')
         .order('name')
-
       setEmployees(emps || [])
 
-      // Fetch today's attendance
       const { data: att } = await supabase
         .from('attendance')
         .select('*')
         .eq('salon_id', salonId)
         .eq('date', today)
-
       setAttendance(att || [])
     } catch (err) {
       console.error('fetchAll:', err.message)
@@ -59,37 +73,32 @@ export default function AttendanceManager() {
   }
 
   async function fetchMonthly() {
-    const startDate = month + '-01'
-    const endDate   = month + '-31'
-
     const { data } = await supabase
       .from('attendance')
       .select('*')
       .eq('salon_id', salonId)
-      .gte('date', startDate)
-      .lte('date', endDate)
+      .gte('date', month + '-01')
+      .lte('date', month + '-31')
       .order('date')
-
     setMonthly(data || [])
   }
 
-  function getRecord(empId, date = today) {
-    const list = date === today ? attendance : monthly
-    return list.find(a => a.employee_id === empId && a.date === date)
+  function getRecord(empId) {
+    return attendance.find(a => a.employee_id === empId)
   }
 
   async function markAttendance(empId, status) {
     setSaving(s => ({ ...s, [empId]: true }))
     try {
       const existing = getRecord(empId)
-      const now = new Date().toISOString() // Full ISO timestamp
+      const nowTime  = getNowTime()
 
       if (existing) {
-        // Update existing record
         const updates = { status }
-        if (status === 'present' && !existing.check_in) updates.check_in = now
+        if (status === 'present' && !existing.check_in) updates.check_in = nowTime
+        if (status === 'half'    && !existing.check_in) updates.check_in = nowTime
         if (status === 'absent' || status === 'leave') {
-          updates.check_in = null
+          updates.check_in  = null
           updates.check_out = null
         }
 
@@ -97,29 +106,28 @@ export default function AttendanceManager() {
           .from('attendance')
           .update(updates)
           .eq('id', existing.id)
-          .select().single()
-
+          .select()
+          .single()
         if (error) throw error
         setAttendance(a => a.map(r => r.id === existing.id ? data : r))
       } else {
-        // Insert new record
         const { data, error } = await supabase
           .from('attendance')
           .insert({
-            salon_id: salonId,
+            salon_id:    salonId,
             employee_id: empId,
-            date: today,
+            date:        today,
             status,
-            check_in: status === 'present' || status === 'half' ? now : null,
+            check_in:    (status === 'present' || status === 'half') ? nowTime : null,
           })
-          .select().single()
-
+          .select()
+          .single()
         if (error) throw error
         setAttendance(a => [...a, data])
       }
     } catch (err) {
       console.error('markAttendance:', err.message)
-      alert('Error: ' + err.message)
+      alert('Error saving attendance: ' + err.message)
     } finally {
       setSaving(s => ({ ...s, [empId]: false }))
     }
@@ -130,24 +138,25 @@ export default function AttendanceManager() {
     try {
       const record = getRecord(empId)
       if (!record) return
-      const now = new Date().toTimeString().slice(0, 5)
+
+      const nowTime = getNowTime()
 
       const { data, error } = await supabase
         .from('attendance')
-        .update({ check_out: now })
+        .update({ check_out: nowTime })
         .eq('id', record.id)
-        .select().single()
-
+        .select()
+        .single()
       if (error) throw error
       setAttendance(a => a.map(r => r.id === record.id ? data : r))
     } catch (err) {
       console.error('markCheckOut:', err.message)
+      alert('Error checking out: ' + err.message)
     } finally {
       setSaving(s => ({ ...s, [empId]: false }))
     }
   }
 
-  // ── Get days in month for calendar ──────────────────────────
   function getDaysInMonth(ym) {
     const [y, m] = ym.split('-').map(Number)
     return new Date(y, m, 0).getDate()
@@ -161,70 +170,69 @@ export default function AttendanceManager() {
     })
   }
 
-  // ── Summary stats ────────────────────────────────────────────
-  const todayPresent  = attendance.filter(a => a.status === 'present' || a.status === 'half').length
-  const todayAbsent   = employees.length - todayPresent
-  const todayLeave    = attendance.filter(a => a.status === 'leave').length
-  const notMarked     = employees.filter(e => !getRecord(e.id)).length
-
-  // ── Styles ────────────────────────────────────────────────────
-  const S = {
-    wrap:    { padding: '0 4px' },
-    title:   { fontSize:22, fontWeight:700, color:'#1a0a0a', marginBottom:4 },
-    sub:     { fontSize:13, color:'#888', marginBottom:24 },
-    stats:   { display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 },
-    stat:    { background:'#fff', borderRadius:14, padding:'16px 20px', boxShadow:'0 1px 6px rgba(0,0,0,0.06)', textAlign:'center' },
-    statN:   { fontSize:28, fontWeight:700, marginBottom:4 },
-    statL:   { fontSize:12, color:'#888' },
-    tabs:    { display:'flex', gap:8, marginBottom:20 },
-    tab:     (a) => ({ padding:'8px 20px', borderRadius:10, border:'none', cursor:'pointer', fontSize:13, fontWeight:500, background:a?'#8b2252':'#f5f3f0', color:a?'#fff':'#666' }),
-    card:    { background:'#fff', borderRadius:16, padding:20, boxShadow:'0 1px 8px rgba(0,0,0,0.06)', marginBottom:12 },
-    empRow:  { display:'flex', alignItems:'center', gap:14 },
-    avatar:  (c) => ({ width:44, height:44, borderRadius:'50%', background:c, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:16, color:'#fff', flexShrink:0 }),
-    name:    { fontSize:15, fontWeight:600, color:'#1a0a0a', marginBottom:2 },
-    role:    { fontSize:12, color:'#888' },
-    btnRow:  { display:'flex', gap:6, marginTop:12, flexWrap:'wrap' },
-    statusBtn: (active, status) => ({
-      padding:'6px 14px', borderRadius:20, border: active ? '2px solid '+STATUS_COLORS[status] : '1.5px solid #e8e4df',
-      background: active ? STATUS_BG[status] : 'transparent',
-      color: active ? STATUS_COLORS[status] : '#888',
-      cursor:'pointer', fontSize:12, fontWeight:active?700:500, transition:'all .15s'
-    }),
-    timeBox: { display:'flex', gap:12, marginTop:10, fontSize:12, color:'#555' },
-    timePill:{ background:'#f5f3f0', borderRadius:8, padding:'4px 10px', fontWeight:600 },
-    checkOutBtn: { padding:'5px 14px', borderRadius:20, border:'none', background:'#1a0a0a', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' },
-    calWrap: { background:'#fff', borderRadius:16, padding:24, boxShadow:'0 1px 8px rgba(0,0,0,0.06)', overflowX:'auto' },
-    calTable:{ borderCollapse:'collapse', width:'100%', fontSize:12 },
-    calTh:   { padding:'8px 4px', color:'#aaa', fontWeight:600, textAlign:'center', borderBottom:'1px solid #f0ede9', minWidth:28 },
-    calTd:   { padding:'4px', textAlign:'center' },
-    calDot:  (s) => ({ width:22, height:22, borderRadius:'50%', background: s ? STATUS_BG[s] : '#f5f3f0', color: s ? STATUS_COLORS[s] : '#ccc', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, margin:'0 auto' }),
-    monthNav:{ display:'flex', alignItems:'center', gap:12, marginBottom:16 },
-    navBtn:  { padding:'6px 14px', border:'1px solid #e8e4df', borderRadius:8, background:'#fff', cursor:'pointer', fontSize:13 },
-    legend:  { display:'flex', gap:16, marginTop:12, flexWrap:'wrap' },
-    legItem: { display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#555' },
-    legDot:  (c) => ({ width:12, height:12, borderRadius:'50%', background:c }),
-  }
-
-  const COLORS = ['#8b2252','#2563eb','#059669','#d97706','#7c3aed','#db2777']
-  function initials(name) { return (name||'?').split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) }
-
   function changeMonth(dir) {
     const [y, m] = month.split('-').map(Number)
     const d = new Date(y, m - 1 + dir, 1)
     setMonth(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'))
   }
 
+  const todayPresent = attendance.filter(a => a.status === 'present' || a.status === 'half').length
+  const todayAbsent  = employees.length - todayPresent
+  const todayLeave   = attendance.filter(a => a.status === 'leave').length
+  const notMarked    = employees.filter(e => !getRecord(e.id)).length
+
+  const COLORS = ['#8b2252','#2563eb','#059669','#d97706','#7c3aed','#db2777']
+  function initials(name) { return (name||'?').split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) }
+
+  // ── Styles ────────────────────────────────────────────────────
+  const S = {
+    wrap:     { padding:'0 4px' },
+    title:    { fontSize:22, fontWeight:700, color:'#1a0a0a', marginBottom:4 },
+    sub:      { fontSize:13, color:'#888', marginBottom:24 },
+    stats:    { display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 },
+    stat:     { background:'#fff', borderRadius:14, padding:'16px 20px', boxShadow:'0 1px 6px rgba(0,0,0,0.06)', textAlign:'center' },
+    statN:    { fontSize:28, fontWeight:700, marginBottom:4 },
+    statL:    { fontSize:12, color:'#888' },
+    tabs:     { display:'flex', gap:8, marginBottom:20 },
+    tab:      (a) => ({ padding:'8px 20px', borderRadius:10, border:'none', cursor:'pointer', fontSize:13, fontWeight:500, background:a?'#8b2252':'#f5f3f0', color:a?'#fff':'#666' }),
+    card:     { background:'#fff', borderRadius:16, padding:20, boxShadow:'0 1px 8px rgba(0,0,0,0.06)', marginBottom:12 },
+    empRow:   { display:'flex', alignItems:'center', gap:14 },
+    avatar:   (c) => ({ width:44, height:44, borderRadius:'50%', background:c, display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:16, color:'#fff', flexShrink:0 }),
+    btnRow:   { display:'flex', gap:6, marginTop:12, flexWrap:'wrap' },
+    statusBtn:(active, status) => ({
+      padding:'6px 14px', borderRadius:20,
+      border: active ? '2px solid '+STATUS_COLORS[status] : '1.5px solid #e8e4df',
+      background: active ? STATUS_BG[status] : 'transparent',
+      color: active ? STATUS_COLORS[status] : '#888',
+      cursor:'pointer', fontSize:12, fontWeight:active?700:500
+    }),
+    timeBox:  { display:'flex', gap:12, marginTop:10, fontSize:12, color:'#555', alignItems:'center', flexWrap:'wrap' },
+    timePill: { background:'#f5f3f0', borderRadius:8, padding:'4px 10px', fontWeight:600 },
+    coBtn:    { padding:'5px 14px', borderRadius:20, border:'none', background:'#1a0a0a', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' },
+    markAll:  { display:'block', margin:'0 auto', padding:'10px 28px', background:'#10b981', color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer', marginTop:16 },
+    calWrap:  { background:'#fff', borderRadius:16, padding:24, boxShadow:'0 1px 8px rgba(0,0,0,0.06)', overflowX:'auto' },
+    navRow:   { display:'flex', alignItems:'center', gap:12, marginBottom:16 },
+    navBtn:   { padding:'6px 14px', border:'1px solid #e8e4df', borderRadius:8, background:'#fff', cursor:'pointer', fontSize:13 },
+    calTh:    { padding:'8px 4px', color:'#aaa', fontWeight:600, textAlign:'center', borderBottom:'1px solid #f0ede9', minWidth:26, fontSize:11 },
+    calTd:    { padding:'3px', textAlign:'center' },
+    calDot:   (s) => ({ width:22, height:22, borderRadius:'50%', background: s ? STATUS_BG[s] : '#f5f3f0', color: s ? STATUS_COLORS[s] : '#ddd', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, margin:'0 auto' }),
+    legend:   { display:'flex', gap:16, marginTop:12, flexWrap:'wrap' },
+    legItem:  { display:'flex', alignItems:'center', gap:6, fontSize:12, color:'#555' },
+    legDot:   (c) => ({ width:12, height:12, borderRadius:'50%', background:c }),
+    empty:    { textAlign:'center', padding:'60px 20px', color:'#aaa' },
+  }
+
   if (loading) return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:300,color:'#888',flexDirection:'column',gap:12}}>
-      <div style={{fontSize:32}}>⏳</div>Loading attendance...
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:300, color:'#888', flexDirection:'column', gap:12 }}>
+      <div style={{ fontSize:32 }}>⏳</div>Loading attendance...
     </div>
   )
 
   if (employees.length === 0) return (
-    <div style={{textAlign:'center',padding:'60px 20px',color:'#aaa'}}>
-      <div style={{fontSize:48,marginBottom:12}}>📅</div>
-      <div style={{fontSize:18,fontWeight:700,color:'#1a0a0a',marginBottom:8}}>No staff yet</div>
-      <div style={{fontSize:14}}>Add staff members first, then manage their attendance here.</div>
+    <div style={S.empty}>
+      <div style={{ fontSize:48, marginBottom:12 }}>📅</div>
+      <div style={{ fontSize:18, fontWeight:700, color:'#1a0a0a', marginBottom:8 }}>No staff yet</div>
+      <div style={{ fontSize:14 }}>Add staff members first to manage attendance.</div>
     </div>
   )
 
@@ -254,32 +262,31 @@ export default function AttendanceManager() {
 
       {/* Tabs */}
       <div style={S.tabs}>
-        <button style={S.tab(view==='today')}   onClick={()=>setView('today')}>📋 Today's Attendance</button>
-        <button style={S.tab(view==='monthly')} onClick={()=>{ setView('monthly'); fetchMonthly() }}>📅 Monthly Calendar</button>
+        <button style={S.tab(view==='today')}   onClick={() => setView('today')}>📋 Today's Attendance</button>
+        <button style={S.tab(view==='monthly')} onClick={() => { setView('monthly'); fetchMonthly() }}>📅 Monthly Calendar</button>
       </div>
 
       {/* ── TODAY VIEW ── */}
       {view === 'today' && (
         <div>
           {employees.map((emp, i) => {
-            const record = getRecord(emp.id)
-            const status = record?.status
+            const record   = getRecord(emp.id)
+            const status   = record?.status
             const isSaving = saving[emp.id]
 
             return (
               <div key={emp.id} style={S.card}>
                 <div style={S.empRow}>
                   <div style={S.avatar(COLORS[i % COLORS.length])}>{initials(emp.name)}</div>
-                  <div style={{flex:1}}>
-                    <div style={S.name}>{emp.name}</div>
-                    <div style={S.role}>{emp.role || 'Staff'}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:15, fontWeight:700, color:'#1a0a0a', marginBottom:2 }}>{emp.name}</div>
+                    <div style={{ fontSize:12, color:'#888' }}>{emp.role || 'Staff'}</div>
                   </div>
-                  {status && (
-                    <span style={{ fontSize:13, fontWeight:600, color: STATUS_COLORS[status], background: STATUS_BG[status], padding:'4px 12px', borderRadius:20 }}>
+                  {status ? (
+                    <span style={{ fontSize:13, fontWeight:600, color:STATUS_COLORS[status], background:STATUS_BG[status], padding:'4px 12px', borderRadius:20 }}>
                       {STATUS_LABELS[status]}
                     </span>
-                  )}
-                  {!status && (
+                  ) : (
                     <span style={{ fontSize:12, color:'#f59e0b', background:'#fffbeb', padding:'4px 12px', borderRadius:20, fontWeight:600 }}>
                       ⏳ Not marked
                     </span>
@@ -292,7 +299,7 @@ export default function AttendanceManager() {
                     <button key={s} style={S.statusBtn(status===s, s)}
                       onClick={() => !isSaving && markAttendance(emp.id, s)}
                       disabled={isSaving}>
-                      {isSaving && status===s ? '...' : STATUS_LABELS[s]}
+                      {STATUS_LABELS[s]}
                     </button>
                   ))}
                 </div>
@@ -301,15 +308,15 @@ export default function AttendanceManager() {
                 {record && (
                   <div style={S.timeBox}>
                     <div>
-                      <span style={{color:'#aaa'}}>Check In: </span>
-                      <span style={S.timePill}>{record.check_in ? new Date(record.check_in).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—'}</span>
+                      <span style={{ color:'#aaa' }}>Check In: </span>
+                      <span style={S.timePill}>{displayTime(record.check_in)}</span>
                     </div>
                     <div>
-                      <span style={{color:'#aaa'}}>Check Out: </span>
-                      <span style={S.timePill}>{record.check_out || '—'}</span>
+                      <span style={{ color:'#aaa' }}>Check Out: </span>
+                      <span style={S.timePill}>{displayTime(record.check_out)}</span>
                     </div>
                     {record.check_in && !record.check_out && (record.status==='present'||record.status==='half') && (
-                      <button style={S.checkOutBtn} onClick={()=>markCheckOut(emp.id)} disabled={isSaving}>
+                      <button style={S.coBtn} onClick={() => markCheckOut(emp.id)} disabled={isSaving}>
                         {isSaving ? '...' : '🚪 Check Out'}
                       </button>
                     )}
@@ -319,38 +326,34 @@ export default function AttendanceManager() {
             )
           })}
 
-          {/* Quick mark all present */}
-          <div style={{textAlign:'center',marginTop:16}}>
-            <button onClick={async () => {
-              for (const emp of employees) {
-                if (!getRecord(emp.id)) await markAttendance(emp.id, 'present')
-              }
-            }} style={{padding:'10px 28px',background:'#10b981',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:600,cursor:'pointer'}}>
-              ✅ Mark All Present
-            </button>
-          </div>
+          {/* Mark All Present */}
+          <button style={S.markAll} onClick={async () => {
+            for (const emp of employees) {
+              if (!getRecord(emp.id)) await markAttendance(emp.id, 'present')
+            }
+          }}>
+            ✅ Mark All Present
+          </button>
         </div>
       )}
 
-      {/* ── MONTHLY CALENDAR VIEW ── */}
+      {/* ── MONTHLY VIEW ── */}
       {view === 'monthly' && (
         <div style={S.calWrap}>
-          <div style={S.monthNav}>
-            <button style={S.navBtn} onClick={()=>changeMonth(-1)}>◀</button>
-            <div style={{fontWeight:700,fontSize:16}}>
-              {new Date(month+'-01').toLocaleDateString('en-IN',{month:'long',year:'numeric'})}
+          <div style={S.navRow}>
+            <button style={S.navBtn} onClick={() => changeMonth(-1)}>◀</button>
+            <div style={{ fontWeight:700, fontSize:16 }}>
+              {new Date(month+'-01').toLocaleDateString('en-IN',{ month:'long', year:'numeric' })}
             </div>
-            <button style={S.navBtn} onClick={()=>changeMonth(1)}>▶</button>
+            <button style={S.navBtn} onClick={() => changeMonth(1)}>▶</button>
           </div>
 
-          <table style={S.calTable}>
+          <table style={{ borderCollapse:'collapse', width:'100%', fontSize:12 }}>
             <thead>
               <tr>
-                <th style={{...S.calTh, textAlign:'left', minWidth:120}}>Staff</th>
+                <th style={{ ...S.calTh, textAlign:'left', minWidth:120 }}>Staff</th>
                 {days.map(d => (
-                  <th key={d} style={S.calTh}>
-                    {parseInt(d.split('-')[2])}
-                  </th>
+                  <th key={d} style={S.calTh}>{parseInt(d.split('-')[2])}</th>
                 ))}
                 <th style={S.calTh}>P</th>
                 <th style={S.calTh}>A</th>
@@ -363,30 +366,31 @@ export default function AttendanceManager() {
                 const present = empRecords.filter(a => a.status==='present').length
                 const absent  = empRecords.filter(a => a.status==='absent').length
                 const half    = empRecords.filter(a => a.status==='half').length
-
                 return (
                   <tr key={emp.id}>
-                    <td style={{padding:'6px 4px', fontWeight:600, fontSize:13, whiteSpace:'nowrap'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:8}}>
-                        <div style={{...S.avatar(COLORS[i%COLORS.length]),width:28,height:28,fontSize:11}}>{initials(emp.name)}</div>
+                    <td style={{ padding:'6px 4px', fontWeight:600, fontSize:13, whiteSpace:'nowrap' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <div style={{ ...S.avatar(COLORS[i%COLORS.length]), width:26, height:26, fontSize:10 }}>
+                          {initials(emp.name)}
+                        </div>
                         {emp.name}
                       </div>
                     </td>
                     {days.map(d => {
                       const rec = monthly.find(a => a.employee_id===emp.id && a.date===d)
-                      const s = rec?.status
+                      const s   = rec?.status
                       const isToday = d === today
                       return (
-                        <td key={d} style={{...S.calTd, background: isToday?'#faf5ff':'transparent'}}>
+                        <td key={d} style={{ ...S.calTd, background: isToday?'#faf5ff':'transparent' }}>
                           <div style={S.calDot(s)}>
-                            {s ? (s==='present'?'P':s==='absent'?'A':s==='half'?'H':'L') : (isToday?'·':'·')}
+                            {s ? (s==='present'?'P':s==='absent'?'A':s==='half'?'H':'L') : '·'}
                           </div>
                         </td>
                       )
                     })}
-                    <td style={{...S.calTd, fontWeight:700, color:'#10b981'}}>{present}</td>
-                    <td style={{...S.calTd, fontWeight:700, color:'#ef4444'}}>{absent}</td>
-                    <td style={{...S.calTd, fontWeight:700, color:'#f59e0b'}}>{half}</td>
+                    <td style={{ ...S.calTd, fontWeight:700, color:'#10b981' }}>{present}</td>
+                    <td style={{ ...S.calTd, fontWeight:700, color:'#ef4444' }}>{absent}</td>
+                    <td style={{ ...S.calTd, fontWeight:700, color:'#f59e0b' }}>{half}</td>
                   </tr>
                 )
               })}

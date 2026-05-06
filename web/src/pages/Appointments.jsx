@@ -1,347 +1,308 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const HOURS = ['9:00', '9:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30',
-  '1:00', '1:30', '2:00', '2:30', '3:00', '3:30', '4:00', '4:30', '5:00', '5:30', '6:00']
-
-const STAFF = [
-  { id: 1, name: 'Kavitha R.', role: 'Senior Stylist', color: '#8B3A52', bg: '#FDF0F3' },
-  { id: 2, name: 'Sneha M.', role: 'Makeup Artist', color: '#0F6E56', bg: '#E1F5EE' },
-  { id: 3, name: 'Latha D.', role: 'Hair Specialist', color: '#185FA5', bg: '#E6F1FB' },
-  { id: 4, name: 'Bindhu P.', role: 'Nail Tech', color: '#BA7517', bg: '#FAEEDA' },
-]
+const STATUSES = ['booked', 'confirmed', 'serving', 'done', 'cancelled']
+const STATUS_COLORS = {
+  booked:    '#f59e0b', confirmed: '#3b82f6',
+  serving:   '#10b981', done:      '#6b7280', cancelled: '#ef4444'
+}
 
 const SERVICES = [
-  { name: 'Bridal Makeup + Hair', duration: 180, price: 8500, category: 'Bridal' },
-  { name: 'Hair Color — Balayage', duration: 120, price: 6500, category: 'Hair' },
-  { name: 'Keratin Treatment', duration: 120, price: 5500, category: 'Hair' },
-  { name: 'Facial + Cleanup', duration: 60, price: 2800, category: 'Skin' },
-  { name: 'Haircut + Style', duration: 45, price: 1200, category: 'Hair' },
-  { name: 'Nail Art + Extensions', duration: 90, price: 3200, category: 'Nails' },
-  { name: 'Spa Package', duration: 120, price: 4500, category: 'Spa' },
-  { name: 'Consultation', duration: 30, price: 500, category: 'General' },
+  'Hair Cut', 'Hair Color', 'Balayage', 'Keratin Treatment', 'Olaplex',
+  'Bridal Makeup', 'HD Makeup', 'Airbrush Makeup',
+  'Facial', 'Hydrafacial', 'Threading', 'Waxing',
+  'Manicure', 'Pedicure', 'Nail Art', 'Gel Extensions',
+  'Spa Massage', 'Hot Stone Massage', 'Body Wrap',
+  'Bridal Package', 'Pre-Bridal Package', 'Mehendi',
 ]
 
-const STATUS_CONFIG = {
-  booked:     { label: 'Booked',     color: '#185FA5', bg: '#E6F1FB' },
-  confirmed:  { label: 'Confirmed',  color: '#0F6E56', bg: '#E1F5EE' },
-  serving:    { label: 'Serving',    color: '#8B3A52', bg: '#FDF0F3' },
-  done:       { label: 'Done',       color: '#3B6D11', bg: '#EAF3DE' },
-  cancelled:  { label: 'Cancelled',  color: '#993C1D', bg: '#FAECE7' },
-  no_show:    { label: 'No Show',    color: '#854F0B', bg: '#FAEEDA' },
-  rescheduled:{ label: 'Rescheduled',color: '#533AB7', bg: '#EEEDFE' },
+const TIMES = [
+  '09:00','09:30','10:00','10:30','11:00','11:30',
+  '12:00','12:30','13:00','13:30','14:00','14:30',
+  '15:00','15:30','16:00','16:30','17:00','17:30',
+  '18:00','18:30','19:00','19:30','20:00'
+]
+
+function timeStr(t) {
+  if (!t) return '—'
+  try { return new Date('2000-01-01T' + t).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) }
+  catch { return t }
 }
 
-const CLIENTS = [
-  { id: 1, token: '#A047', name: 'Priya Menon' },
-  { id: 2, token: '#B112', name: 'Anjali Rao' },
-  { id: 3, token: '#C089', name: 'Divya Krishnan' },
-  { id: 4, token: '#D203', name: 'Meera Sharma' },
-]
-
-// ─── MOCK APPOINTMENTS ────────────────────────────────────────────────────────
-const TODAY = new Date().toISOString().split('T')[0]
-const MOCK_APPOINTMENTS = [
-  { id: 1, clientToken: '#A047', clientName: 'Priya Menon', service: 'Bridal Makeup + Hair', staffId: 1, date: TODAY, time: '10:00', duration: 180, amount: 8500, status: 'serving', notes: 'Pre-bridal trial' },
-  { id: 2, clientToken: '#B112', clientName: 'Anjali Rao', service: 'Keratin Treatment', staffId: 3, date: TODAY, time: '11:00', duration: 120, amount: 5500, status: 'confirmed', notes: '' },
-  { id: 3, clientToken: '#C089', clientName: 'Divya Krishnan', service: 'Facial + Cleanup', staffId: 2, date: TODAY, time: '2:00', duration: 60, amount: 2800, status: 'booked', notes: 'First visit' },
-  { id: 4, clientToken: '#D203', clientName: 'Meera Sharma', service: 'Hair Color — Balayage', staffId: 3, date: TODAY, time: '3:00', duration: 120, amount: 6500, status: 'booked', notes: '' },
-  { id: 5, clientToken: '#A047', clientName: 'Priya Menon', service: 'Nail Art + Extensions', staffId: 4, date: TODAY, time: '4:30', duration: 90, amount: 3200, status: 'booked', notes: '' },
-]
-
-// ─── STATUS BADGE ─────────────────────────────────────────────────────────────
-function StatusBadge({ status }) {
-  const c = STATUS_CONFIG[status] || STATUS_CONFIG.booked
-  return <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: c.bg, color: c.color, fontWeight: 500 }}>{c.label}</span>
+function generateToken(index) {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const letter = letters[Math.floor(index / 1000) % letters.length]
+  const num = String(index % 1000).padStart(3, '0')
+  return '#' + letter + num
 }
 
-// ─── BOOK APPOINTMENT MODAL ───────────────────────────────────────────────────
-function BookModal({ onClose, onBook, sym }) {
-  const [form, setForm] = useState({ clientId: '', service: '', staffId: '', date: TODAY, time: '10:00', notes: '' })
-  const up = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const selectedService = SERVICES.find(s => s.name === form.service)
-  const selectedClient = CLIENTS.find(c => c.id === Number(form.clientId))
+export default function Appointments() {
+  const { salonId, currencySymbol } = useAuth()
+  const sym = currencySymbol || '₹'
 
-  function handleSubmit(e) {
-    e.preventDefault()
-    if (!form.clientId || !form.service || !form.staffId) return
-    onBook({
-      id: Date.now(),
-      clientToken: selectedClient.token,
-      clientName: selectedClient.name,
-      service: form.service,
-      staffId: Number(form.staffId),
-      date: form.date,
-      time: form.time,
-      duration: selectedService?.duration || 60,
-      amount: selectedService?.price || 0,
-      status: 'booked',
-      notes: form.notes,
-    })
-    onClose()
+  const [appointments, setAppointments] = useState([])
+  const [employees,    setEmployees]    = useState([])
+  const [clients,      setClients]      = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [view,         setView]         = useState('list') // 'list' | 'timeline'
+  const [showAdd,      setShowAdd]      = useState(false)
+  const [selected,     setSelected]     = useState(null)
+  const [filterDate,   setFilterDate]   = useState(new Date().toISOString().split('T')[0])
+  const [filterStatus, setFilterStatus] = useState('all')
+  const [saving,       setSaving]       = useState(false)
+  const [formErr,      setFormErr]      = useState('')
+  const [updating,     setUpdating]     = useState({})
+
+  const [form, setForm] = useState({
+    client_id: '', client_token: '', service_name: '',
+    employee_id: '', date: new Date().toISOString().split('T')[0],
+    start_time: '10:00', amount: '', notes: '', status: 'booked'
+  })
+
+  useEffect(() => { if (salonId) fetchAll() }, [salonId])
+  useEffect(() => { if (salonId) fetchAppointments() }, [filterDate, salonId])
+
+  async function fetchAll() {
+    setLoading(true)
+    try {
+      await Promise.all([fetchAppointments(), fetchEmployees(), fetchClients()])
+    } finally {
+      setLoading(false)
+    }
   }
 
-  return (
-    <div style={Mo.overlay}>
-      <div style={Mo.modal}>
-        <div style={Mo.header}>
-          <div style={Mo.title}>New Appointment</div>
-          <button style={Mo.close} onClick={onClose}>✕</button>
-        </div>
-        <form onSubmit={handleSubmit} style={Mo.form}>
-          <div style={Mo.field}>
-            <label style={Mo.label}>Client *</label>
-            <select style={Mo.input} value={form.clientId} onChange={e => up('clientId', e.target.value)} required>
-              <option value="">Select client...</option>
-              {CLIENTS.map(c => <option key={c.id} value={c.id}>{c.token} — {c.name}</option>)}
-            </select>
-            <div style={Mo.hint}>🛡 Staff will only see the client token, not the name</div>
-          </div>
-          <div style={Mo.field}>
-            <label style={Mo.label}>Service *</label>
-            <select style={Mo.input} value={form.service} onChange={e => up('service', e.target.value)} required>
-              <option value="">Select service...</option>
-              {SERVICES.map(s => <option key={s.name} value={s.name}>{s.name} — {sym}{s.price.toLocaleString()} ({s.duration} min)</option>)}
-            </select>
-          </div>
-          <div style={Mo.field}>
-            <label style={Mo.label}>Assign to Staff *</label>
-            <select style={Mo.input} value={form.staffId} onChange={e => up('staffId', e.target.value)} required>
-              <option value="">Select staff...</option>
-              {STAFF.map(s => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
-            </select>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div style={Mo.field}>
-              <label style={Mo.label}>Date *</label>
-              <input style={Mo.input} type="date" value={form.date} onChange={e => up('date', e.target.value)} required />
-            </div>
-            <div style={Mo.field}>
-              <label style={Mo.label}>Time *</label>
-              <select style={Mo.input} value={form.time} onChange={e => up('time', e.target.value)}>
-                {HOURS.map(h => <option key={h}>{h}</option>)}
-              </select>
-            </div>
-          </div>
-          {selectedService && (
-            <div style={Mo.summaryBox}>
-              <div style={Mo.summaryRow}><span>Service</span><span>{selectedService.name}</span></div>
-              <div style={Mo.summaryRow}><span>Duration</span><span>{selectedService.duration} minutes</span></div>
-              <div style={Mo.summaryRow}><span>Amount</span><span style={{ color: '#0F6E56', fontWeight: 500 }}>{sym}{selectedService.price.toLocaleString()}</span></div>
-            </div>
-          )}
-          <div style={Mo.field}>
-            <label style={Mo.label}>Notes</label>
-            <textarea style={{ ...Mo.input, height: 60, resize: 'vertical' }} value={form.notes} onChange={e => up('notes', e.target.value)} placeholder="Any special instructions..." />
-          </div>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" style={Mo.cancelBtn} onClick={onClose}>Cancel</button>
-            <button type="submit" style={Mo.submitBtn}>Book Appointment →</button>
-          </div>
-        </form>
-      </div>
+  async function fetchAppointments() {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, employees(name)')
+      .eq('salon_id', salonId)
+      .eq('date', filterDate)
+      .order('start_time')
+    if (!error) setAppointments(data || [])
+  }
+
+  async function fetchEmployees() {
+    const { data } = await supabase
+      .from('employees')
+      .select('id, name, role')
+      .eq('salon_id', salonId)
+      .eq('status', 'active')
+    setEmployees(data || [])
+  }
+
+  async function fetchClients() {
+    const { data } = await supabase
+      .from('clients')
+      .select('id, name, token')
+      .eq('salon_id', salonId)
+      .order('name')
+    setClients(data || [])
+  }
+
+  async function bookAppointment() {
+    if (!form.service_name) { setFormErr('Service is required'); return }
+    if (!form.date)         { setFormErr('Date is required'); return }
+    if (!form.start_time)   { setFormErr('Time is required'); return }
+    setSaving(true)
+    setFormErr('')
+    try {
+      // Generate token if no client selected
+      const token = form.client_id
+        ? clients.find(c => c.id === form.client_id)?.token || generateToken(appointments.length)
+        : form.client_token || generateToken(appointments.length)
+
+      const { data, error } = await supabase
+        .from('appointments')
+        .insert({
+          salon_id:     salonId,
+          client_id:    form.client_id || null,
+          client_token: token,
+          service_name: form.service_name,
+          employee_id:  form.employee_id || null,
+          date:         form.date,
+          start_time:   form.start_time + ':00',
+          amount:       parseFloat(form.amount) || 0,
+          notes:        form.notes || null,
+          status:       'booked',
+        })
+        .select('*, employees(name)')
+        .single()
+
+      if (error) throw error
+      setAppointments(a => [...a, data].sort((x,y) => x.start_time > y.start_time ? 1 : -1))
+      setForm({ client_id:'', client_token:'', service_name:'', employee_id:'', date:new Date().toISOString().split('T')[0], start_time:'10:00', amount:'', notes:'', status:'booked' })
+      setShowAdd(false)
+    } catch (err) {
+      setFormErr(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function updateStatus(apt, newStatus) {
+    setUpdating(u => ({ ...u, [apt.id]: true }))
+    try {
+      const { data, error } = await supabase
+        .from('appointments')
+        .update({ status: newStatus })
+        .eq('id', apt.id)
+        .select('*, employees(name)')
+        .single()
+      if (error) throw error
+      setAppointments(a => a.map(x => x.id === apt.id ? data : x))
+      if (selected?.id === apt.id) setSelected(data)
+    } catch (err) {
+      console.error('updateStatus:', err.message)
+    } finally {
+      setUpdating(u => ({ ...u, [apt.id]: false }))
+    }
+  }
+
+  async function deleteAppointment(id) {
+    if (!confirm('Cancel this appointment?')) return
+    await supabase.from('appointments').delete().eq('id', id)
+    setAppointments(a => a.filter(x => x.id !== id))
+    setSelected(null)
+  }
+
+  const filtered = appointments.filter(a =>
+    filterStatus === 'all' || a.status === filterStatus
+  )
+
+  const todayRevenue = appointments
+    .filter(a => a.status === 'done')
+    .reduce((s, a) => s + (a.amount || 0), 0)
+
+  // ── Styles ────────────────────────────────────────────────────
+  const S = {
+    wrap:    { padding:'0 4px' },
+    header:  { display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 },
+    title:   { fontSize:22, fontWeight:700, color:'#1a0a0a' },
+    addBtn:  { padding:'8px 20px', background:'#8b2252', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' },
+    stats:   { display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:20 },
+    stat:    { background:'#fff', borderRadius:12, padding:'14px 18px', boxShadow:'0 1px 6px rgba(0,0,0,0.06)' },
+    statL:   { fontSize:11, color:'#aaa', fontWeight:600, letterSpacing:'1px', marginBottom:4 },
+    statV:   { fontSize:22, fontWeight:700, color:'#1a0a0a' },
+    toolbar: { display:'flex', gap:8, marginBottom:16, alignItems:'center', flexWrap:'wrap' },
+    dateInp: { padding:'8px 12px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:13, outline:'none', background:'#fff', color:'#1a0a0a' },
+    viewBtn: (a) => ({ padding:'7px 16px', border:'none', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:500, background:a?'#8b2252':'#f5f3f0', color:a?'#fff':'#666' }),
+    fBtn:    (a) => ({ padding:'5px 12px', borderRadius:20, border:'none', cursor:'pointer', fontSize:11, fontWeight:500, background:a?'#1a0a0a':'#f5f3f0', color:a?'#fff':'#666' }),
+    card:    { background:'#fff', borderRadius:14, padding:16, marginBottom:10, boxShadow:'0 1px 6px rgba(0,0,0,0.06)', cursor:'pointer', display:'flex', alignItems:'center', gap:12 },
+    token:   { background:'#f5f3f0', borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:700, color:'#8b2252', minWidth:56, textAlign:'center', flexShrink:0 },
+    badge:   (s) => ({ fontSize:10, padding:'3px 10px', borderRadius:20, background:(STATUS_COLORS[s]||'#888')+'20', color:STATUS_COLORS[s]||'#888', fontWeight:700 }),
+    overlay: { position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 },
+    modal:   { background:'#fff', borderRadius:20, width:'100%', maxWidth:500, maxHeight:'90vh', overflowY:'auto', padding:28 },
+    label:   { display:'block', fontSize:12, fontWeight:600, color:'#555', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.5px', marginTop:14 },
+    input:   { width:'100%', padding:'10px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', color:'#1a0a0a', background:'#faf9f7' },
+    sel:     { width:'100%', padding:'10px 14px', border:'1.5px solid #e8e4df', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box', color:'#1a0a0a', background:'#faf9f7' },
+    saveBtn: { width:'100%', padding:'12px', background:'#8b2252', color:'#fff', border:'none', borderRadius:10, fontSize:15, fontWeight:600, cursor:'pointer', marginTop:16 },
+    err:     { background:'#fff0f0', border:'1px solid #fcc', borderRadius:8, padding:'8px 12px', fontSize:13, color:'#c00', marginBottom:12 },
+    panel:   { position:'fixed', right:0, top:0, width:400, height:'100vh', background:'#fff', boxShadow:'-4px 0 24px rgba(0,0,0,0.1)', zIndex:100, overflowY:'auto', padding:24 },
+    panelOv: { position:'fixed', inset:0, background:'rgba(0,0,0,0.2)', zIndex:99 },
+    statusBtn:(a,s)=>({ padding:'6px 12px', borderRadius:20, border:a?'2px solid '+STATUS_COLORS[s]:'1.5px solid #e8e4df', background:a?(STATUS_COLORS[s]+'20'):'transparent', color:a?STATUS_COLORS[s]:'#888', cursor:'pointer', fontSize:11, fontWeight:a?700:500 }),
+    grid2:   { display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 },
+    empty:   { textAlign:'center', padding:'50px 20px', color:'#aaa' },
+  }
+
+  if (loading) return (
+    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:300, color:'#888', flexDirection:'column', gap:12 }}>
+      <div style={{ fontSize:32 }}>⏳</div>Loading appointments...
     </div>
   )
-}
-
-// ─── APPOINTMENT DETAIL PANEL ─────────────────────────────────────────────────
-function ApptDetail({ appt, onClose, onStatusChange, sym }) {
-  const staff = STAFF.find(s => s.id === appt.staffId)
-  const statusOrder = ['booked', 'confirmed', 'serving', 'done']
-  const currentIdx = statusOrder.indexOf(appt.status)
 
   return (
-    <div style={Dt.overlay}>
-      <div style={Dt.panel}>
-        <div style={Dt.header}>
-          <div>
-            <div style={Dt.service}>{appt.service}</div>
-            <div style={Dt.meta}>{appt.date} · {appt.time}</div>
+    <div style={S.wrap}>
+      {/* Header */}
+      <div style={S.header}>
+        <div>
+          <div style={S.title}>Appointments</div>
+          <div style={{ fontSize:13, color:'#888', marginTop:2 }}>{appointments.length} appointments on selected date</div>
+        </div>
+        <button style={S.addBtn} onClick={() => setShowAdd(true)}>+ Book Appointment</button>
+      </div>
+
+      {/* Stats */}
+      <div style={S.stats}>
+        {[
+          { label:'TOTAL TODAY',  value: appointments.length },
+          { label:'CONFIRMED',    value: appointments.filter(a=>a.status==='confirmed').length },
+          { label:'SERVING NOW',  value: appointments.filter(a=>a.status==='serving').length },
+          { label:'DONE REVENUE', value: sym + todayRevenue.toLocaleString() },
+        ].map(s => (
+          <div key={s.label} style={S.stat}>
+            <div style={S.statL}>{s.label}</div>
+            <div style={S.statV}>{s.value}</div>
           </div>
-          <button style={Dt.closeBtn} onClick={onClose}>✕</button>
-        </div>
+        ))}
+      </div>
 
-        {/* Progress bar */}
-        <div style={Dt.progressBar}>
-          {statusOrder.map((s, i) => (
-            <div key={s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div style={{ ...Dt.progressDot, background: i <= currentIdx ? STATUS_CONFIG[s].color : '#E8E0D8' }} />
-              <div style={{ fontSize: 9, color: i <= currentIdx ? STATUS_CONFIG[s].color : '#B0A89F', fontWeight: i === currentIdx ? 600 : 400 }}>
-                {STATUS_CONFIG[s].label}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Client token (masked) */}
-        <div style={Dt.tokenBox}>
-          <div style={Dt.tokenLabel}>🛡 Client (masked)</div>
-          <div style={Dt.tokenVal}>{appt.clientToken}</div>
-          <div style={Dt.clientName}>{appt.clientName}</div>
-        </div>
-
-        {/* Details */}
-        <div style={Dt.detailGrid}>
-          <div style={Dt.detailItem}><span style={Dt.detailKey}>Staff</span><span style={{ ...Dt.detailVal, color: staff?.color }}>{staff?.name}</span></div>
-          <div style={Dt.detailItem}><span style={Dt.detailKey}>Role</span><span style={Dt.detailVal}>{staff?.role}</span></div>
-          <div style={Dt.detailItem}><span style={Dt.detailKey}>Duration</span><span style={Dt.detailVal}>{appt.duration} min</span></div>
-          <div style={Dt.detailItem}><span style={Dt.detailKey}>Amount</span><span style={{ ...Dt.detailVal, color: '#0F6E56' }}>{sym}{appt.amount.toLocaleString()}</span></div>
-        </div>
-        {appt.notes && <div style={Dt.notesBox}>📝 {appt.notes}</div>}
-
-        {/* Status actions */}
-        <div style={Dt.actionsTitle}>Update status</div>
-        <div style={Dt.actions}>
-          {Object.entries(STATUS_CONFIG).map(([key, val]) => (
-            <button key={key}
-              style={{ ...Dt.actionBtn, background: appt.status === key ? val.bg : '#fff', color: appt.status === key ? val.color : '#6B6258', border: `0.5px solid ${appt.status === key ? val.color : '#E8E0D8'}` }}
-              onClick={() => onStatusChange(appt.id, key)}>
-              {val.label}
+      {/* Toolbar */}
+      <div style={S.toolbar}>
+        <input type="date" style={S.dateInp} value={filterDate}
+          onChange={e => setFilterDate(e.target.value)} />
+        <button style={S.viewBtn(view==='list')}     onClick={() => setView('list')}>📋 List</button>
+        <button style={S.viewBtn(view==='timeline')} onClick={() => setView('timeline')}>📅 Timeline</button>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          <button style={S.fBtn(filterStatus==='all')} onClick={() => setFilterStatus('all')}>All</button>
+          {STATUSES.map(s => (
+            <button key={s} style={S.fBtn(filterStatus===s)} onClick={() => setFilterStatus(s)}>
+              {s}
             </button>
           ))}
         </div>
       </div>
-    </div>
-  )
-}
 
-// ─── TIMELINE VIEW ────────────────────────────────────────────────────────────
-function TimelineView({ appointments, onSelect, sym }) {
-  return (
-    <div style={T.wrap}>
-      {/* Staff columns header */}
-      <div style={T.header}>
-        <div style={T.timeCol} />
-        {STAFF.map(s => (
-          <div key={s.id} style={{ ...T.staffCol, borderBottom: `3px solid ${s.color}` }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: s.color }}>{s.name}</div>
-            <div style={{ fontSize: 11, color: '#6B6258' }}>{s.role}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Time rows */}
-      <div style={T.body}>
-        {HOURS.map(hour => (
-          <div key={hour} style={T.row}>
-            <div style={T.timeLabel}>{hour}</div>
-            {STAFF.map(staff => {
-              const appt = appointments.find(a => a.staffId === staff.id && a.time === hour)
-              return (
-                <div key={staff.id} style={T.cell}>
-                  {appt && (
-                    <div style={{ ...T.apptBlock, background: staff.bg, borderLeft: `3px solid ${staff.color}` }}
-                      onClick={() => onSelect(appt)}>
-                      <div style={{ fontSize: 11, fontWeight: 500, color: staff.color }}>{appt.clientToken}</div>
-                      <div style={{ fontSize: 10, color: '#6B6258', marginTop: 2 }}>{appt.service.length > 18 ? appt.service.slice(0, 18) + '…' : appt.service}</div>
-                      <StatusBadge status={appt.status} />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
-export default function Appointments() {
-  const { currencySymbol, profile } = useAuth()
-  const sym = currencySymbol || profile?.salons?.settings?.currencySymbol || '₹'
-  const [appointments, setAppointments] = useState(MOCK_APPOINTMENTS)
-  const [view, setView] = useState('list') // list | timeline
-  const [showBook, setShowBook] = useState(false)
-  const [selected, setSelected] = useState(null)
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [filterDate, setFilterDate] = useState(TODAY)
-
-  const filtered = appointments.filter(a => {
-    const matchStatus = filterStatus === 'all' || a.status === filterStatus
-    const matchDate = !filterDate || a.date === filterDate
-    return matchStatus && matchDate
-  })
-
-  function handleBook(appt) { setAppointments(a => [...a, appt]) }
-  function handleStatusChange(id, status) {
-    setAppointments(a => a.map(ap => ap.id === id ? { ...ap, status } : ap))
-    if (selected?.id === id) setSelected(prev => ({ ...prev, status }))
-  }
-
-  const todayAppts = appointments.filter(a => a.date === TODAY)
-  const revenue = todayAppts.filter(a => a.status === 'done').reduce((s, a) => s + a.amount, 0)
-  const serving = todayAppts.filter(a => a.status === 'serving').length
-
-  return (
-    <div style={P.wrap}>
-      {/* Header */}
-      <div style={P.header}>
-        <div>
-          <div style={P.title}>Appointments</div>
-          <div style={P.sub}>Dispatch, track and manage all bookings</div>
+      {/* Empty */}
+      {filtered.length === 0 && (
+        <div style={S.empty}>
+          <div style={{ fontSize:48, marginBottom:12 }}>📅</div>
+          <div style={{ fontSize:18, fontWeight:700, color:'#1a0a0a', marginBottom:8 }}>No appointments</div>
+          <div style={{ fontSize:14, marginBottom:20 }}>No appointments found for this date</div>
+          <button style={{ ...S.addBtn, padding:'10px 28px', fontSize:14 }} onClick={() => setShowAdd(true)}>
+            + Book First Appointment
+          </button>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <div style={P.viewToggle}>
-            <button style={{ ...P.viewBtn, ...(view === 'list' ? P.viewBtnOn : {}) }} onClick={() => setView('list')}>List</button>
-            <button style={{ ...P.viewBtn, ...(view === 'timeline' ? P.viewBtnOn : {}) }} onClick={() => setView('timeline')}>Timeline</button>
+      )}
+
+      {/* ── LIST VIEW ── */}
+      {view === 'list' && filtered.map(apt => (
+        <div key={apt.id} style={S.card} onClick={() => setSelected(apt)}>
+          <div style={S.token}>{apt.client_token || '#???'}</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:'#1a0a0a', marginBottom:3 }}>{apt.service_name || 'Service'}</div>
+            <div style={{ fontSize:12, color:'#888' }}>✂️ {apt.employees?.name || 'Unassigned'}</div>
           </div>
-          <button style={P.bookBtn} onClick={() => setShowBook(true)}>+ Book</button>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div style={P.statsRow}>
-        {[
-          { label: "Today's appointments", value: todayAppts.length, color: '#185FA5' },
-          { label: 'Currently serving', value: serving, color: '#8B3A52' },
-          { label: 'Completed today', value: todayAppts.filter(a => a.status === 'done').length, color: '#0F6E56' },
-          { label: "Today's revenue", value: `${sym}${revenue.toLocaleString()}`, color: '#533AB7' },
-        ].map(s => (
-          <div key={s.label} style={P.statCard}>
-            <div style={{ fontSize: 10, color: '#B0A89F', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 600, color: s.color, fontFamily: "'Cormorant Garamond', serif" }}>{s.value}</div>
+          <div style={{ textAlign:'right', flexShrink:0 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'#555', marginBottom:4 }}>{timeStr(apt.start_time)}</div>
+            <span style={S.badge(apt.status)}>{apt.status}</span>
           </div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div style={P.filters}>
-        <input type="date" style={P.dateInput} value={filterDate} onChange={e => setFilterDate(e.target.value)} />
-        <div style={P.statusFilters}>
-          <button style={{ ...P.fBtn, ...(filterStatus === 'all' ? P.fBtnOn : {}) }} onClick={() => setFilterStatus('all')}>All</button>
-          {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-            <button key={k} style={{ ...P.fBtn, ...(filterStatus === k ? { background: v.bg, color: v.color, border: `0.5px solid ${v.color}` } : {}) }}
-              onClick={() => setFilterStatus(k)}>{v.label}</button>
-          ))}
+          {apt.amount > 0 && (
+            <div style={{ fontSize:13, fontWeight:700, color:'#8b2252', flexShrink:0 }}>
+              {sym}{apt.amount.toLocaleString()}
+            </div>
+          )}
         </div>
-      </div>
+      ))}
 
-      {/* List view */}
-      {view === 'list' && (
-        <div style={P.list}>
-          {filtered.length === 0 && <div style={P.empty}>No appointments found</div>}
-          {filtered.map(a => {
-            const staff = STAFF.find(s => s.id === a.staffId)
+      {/* ── TIMELINE VIEW ── */}
+      {view === 'timeline' && filtered.length > 0 && (
+        <div style={{ background:'#fff', borderRadius:16, padding:20, boxShadow:'0 1px 8px rgba(0,0,0,0.06)' }}>
+          {TIMES.map(t => {
+            const apts = filtered.filter(a => a.start_time?.slice(0,5) === t)
             return (
-              <div key={a.id} style={P.apptRow} onClick={() => setSelected(a)}>
-                <div style={P.timeBlock}>
-                  <div style={P.time}>{a.time}</div>
-                  <div style={P.duration}>{a.duration}m</div>
-                </div>
-                <div style={{ ...P.staffDot, background: staff?.color }} />
-                <div style={{ flex: 1 }}>
-                  <div style={P.apptService}>{a.service}</div>
-                  <div style={P.apptMeta}>
-                    <span style={{ ...P.clientToken, background: staff?.bg, color: staff?.color }}>{a.clientToken}</span>
-                    <span>✂️ {staff?.name}</span>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={P.amount}>{sym}{a.amount.toLocaleString()}</div>
-                  <StatusBadge status={a.status} />
+              <div key={t} style={{ display:'flex', gap:12, minHeight:40, borderBottom:'1px solid #f5f3f0', paddingBottom:4, paddingTop:4 }}>
+                <div style={{ width:50, fontSize:11, color:'#aaa', fontWeight:600, paddingTop:6, flexShrink:0 }}>{t}</div>
+                <div style={{ flex:1, display:'flex', gap:6, flexWrap:'wrap' }}>
+                  {apts.map(apt => (
+                    <div key={apt.id}
+                      onClick={() => setSelected(apt)}
+                      style={{ background:(STATUS_COLORS[apt.status]||'#888')+'15', border:'1.5px solid '+(STATUS_COLORS[apt.status]||'#888')+'40', borderRadius:8, padding:'4px 10px', cursor:'pointer', fontSize:12 }}>
+                      <span style={{ fontWeight:700, color:'#8b2252' }}>{apt.client_token}</span>
+                      <span style={{ color:'#555', marginLeft:6 }}>{apt.service_name}</span>
+                      {apt.employees?.name && <span style={{ color:'#aaa', marginLeft:6 }}>· {apt.employees.name}</span>}
+                    </div>
+                  ))}
                 </div>
               </div>
             )
@@ -349,95 +310,136 @@ export default function Appointments() {
         </div>
       )}
 
-      {/* Timeline view */}
-      {view === 'timeline' && <TimelineView appointments={filtered} onSelect={setSelected} sym={sym} />}
+      {/* ── Book Appointment Modal ── */}
+      {showAdd && (
+        <div style={S.overlay} onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
+          <div style={S.modal}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <div style={{ fontSize:18, fontWeight:700 }}>+ Book Appointment</div>
+              <button onClick={() => setShowAdd(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#888' }}>✕</button>
+            </div>
 
-      {showBook && <BookModal onClose={() => setShowBook(false)} onBook={handleBook} sym={sym} />}
-      {selected && <ApptDetail appt={selected} onClose={() => setSelected(null)} onStatusChange={handleStatusChange} sym={sym} />}
+            {formErr && <div style={S.err}>⚠️ {formErr}</div>}
+
+            <label style={S.label}>Client (from Vault)</label>
+            <select style={S.sel} value={form.client_id}
+              onChange={e => setForm(f => ({ ...f, client_id: e.target.value, client_token: clients.find(c=>c.id===e.target.value)?.token || '' }))}>
+              <option value=''>— Walk-in / New client —</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name} ({c.token})</option>)}
+            </select>
+
+            {!form.client_id && (
+              <>
+                <label style={S.label}>Client Token (for walk-in)</label>
+                <input style={S.input} placeholder="e.g. #W001" value={form.client_token}
+                  onChange={e => setForm(f => ({ ...f, client_token: e.target.value }))} />
+              </>
+            )}
+
+            <label style={S.label}>Service *</label>
+            <select style={S.sel} value={form.service_name}
+              onChange={e => setForm(f => ({ ...f, service_name: e.target.value }))}>
+              <option value=''>— Select service —</option>
+              {SERVICES.map(s => <option key={s}>{s}</option>)}
+            </select>
+
+            <label style={S.label}>Assign Staff</label>
+            <select style={S.sel} value={form.employee_id}
+              onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}>
+              <option value=''>— Unassigned —</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.role || 'staff'})</option>)}
+            </select>
+
+            <div style={S.grid2}>
+              <div>
+                <label style={S.label}>Date *</label>
+                <input type="date" style={S.input} value={form.date}
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+              </div>
+              <div>
+                <label style={S.label}>Time *</label>
+                <select style={S.sel} value={form.start_time}
+                  onChange={e => setForm(f => ({ ...f, start_time: e.target.value }))}>
+                  {TIMES.map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <label style={S.label}>Amount ({sym})</label>
+            <input type="number" style={S.input} placeholder="e.g. 2500"
+              value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+
+            <label style={S.label}>Notes</label>
+            <textarea style={{ ...S.input, height:60, resize:'vertical' }} placeholder="Any special notes..."
+              value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+
+            <button style={S.saveBtn} onClick={bookAppointment} disabled={saving}>
+              {saving ? 'Booking...' : '📅 Book Appointment'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Appointment Detail Panel ── */}
+      {selected && (
+        <>
+          <div style={S.panelOv} onClick={() => setSelected(null)} />
+          <div style={S.panel}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+              <div style={{ fontSize:17, fontWeight:700 }}>Appointment</div>
+              <button onClick={() => setSelected(null)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#888' }}>✕</button>
+            </div>
+
+            {/* Token + status */}
+            <div style={{ textAlign:'center', marginBottom:20 }}>
+              <div style={{ fontSize:32, fontWeight:800, color:'#8b2252', marginBottom:8 }}>{selected.client_token}</div>
+              <span style={{ ...S.badge(selected.status), fontSize:13, padding:'5px 16px' }}>{selected.status}</span>
+            </div>
+
+            {/* Details */}
+            {[
+              ['Service',  selected.service_name || '—'],
+              ['Staff',    selected.employees?.name || 'Unassigned'],
+              ['Date',     new Date(selected.date+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'long'})],
+              ['Time',     timeStr(selected.start_time)],
+              ['Amount',   selected.amount ? sym+selected.amount.toLocaleString() : '—'],
+            ].map(([k,v]) => (
+              <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:'9px 0', borderBottom:'1px solid #f5f3f0', fontSize:13 }}>
+                <span style={{ color:'#888' }}>{k}</span>
+                <span style={{ fontWeight:600 }}>{v}</span>
+              </div>
+            ))}
+
+            {selected.notes && (
+              <div style={{ background:'#faf9f7', borderRadius:10, padding:12, marginTop:12, fontSize:13, color:'#555' }}>
+                📝 {selected.notes}
+              </div>
+            )}
+
+            {/* Update status */}
+            <div style={{ marginTop:20 }}>
+              <div style={{ fontSize:12, fontWeight:600, color:'#888', marginBottom:10, textTransform:'uppercase', letterSpacing:'1px' }}>
+                Update Status
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                {STATUSES.map(s => (
+                  <button key={s} style={S.statusBtn(selected.status===s, s)}
+                    onClick={() => updateStatus(selected, s)}
+                    disabled={updating[selected.id]}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Delete */}
+            <button onClick={() => deleteAppointment(selected.id)}
+              style={{ marginTop:20, width:'100%', padding:'10px', background:'transparent', color:'#ef4444', border:'1px solid #ef4444', borderRadius:10, fontSize:13, cursor:'pointer', fontWeight:600 }}>
+              🗑 Cancel Appointment
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
-}
-
-// ─── STYLES ───────────────────────────────────────────────────────────────────
-const INK = '#1A1208', STONE = '#6B6258', MIST = '#F8F5F0', ROSE = '#8B3A52'
-
-const P = {
-  wrap: { fontFamily: "'DM Sans', sans-serif" },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 26, fontWeight: 600, color: INK },
-  sub: { fontSize: 12, color: STONE, marginTop: 3 },
-  bookBtn: { padding: '9px 18px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  viewToggle: { display: 'flex', background: MIST, borderRadius: 8, padding: 3 },
-  viewBtn: { padding: '6px 14px', border: 'none', background: 'transparent', borderRadius: 6, fontSize: 12, cursor: 'pointer', color: STONE, fontFamily: 'inherit', fontWeight: 500 },
-  viewBtnOn: { background: '#fff', color: ROSE },
-  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 },
-  statCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 10, padding: '12px 16px' },
-  filters: { display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' },
-  dateInput: { padding: '7px 12px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fff', color: INK },
-  statusFilters: { display: 'flex', gap: 6, flexWrap: 'wrap' },
-  fBtn: { padding: '5px 12px', border: '0.5px solid #E8E0D8', borderRadius: 20, fontSize: 11, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', color: STONE },
-  fBtnOn: { background: ROSE, color: '#fff', border: `0.5px solid ${ROSE}` },
-  list: { display: 'flex', flexDirection: 'column', gap: 8 },
-  empty: { textAlign: 'center', color: '#B0A89F', padding: 40 },
-  apptRow: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' },
-  timeBlock: { textAlign: 'center', minWidth: 44 },
-  time: { fontSize: 14, fontWeight: 500, color: INK },
-  duration: { fontSize: 10, color: STONE },
-  staffDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
-  apptService: { fontSize: 14, fontWeight: 500, color: INK, marginBottom: 4 },
-  apptMeta: { display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: STONE },
-  clientToken: { padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500 },
-  amount: { fontSize: 13, fontWeight: 500, color: '#0F6E56', marginBottom: 4 },
-}
-
-const T = {
-  wrap: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 12, overflow: 'auto' },
-  header: { display: 'flex', borderBottom: '0.5px solid #E8E0D8', position: 'sticky', top: 0, background: '#fff', zIndex: 2 },
-  timeCol: { width: 56, flexShrink: 0 },
-  staffCol: { flex: 1, padding: '12px 8px', textAlign: 'center', minWidth: 130 },
-  body: { display: 'flex', flexDirection: 'column' },
-  row: { display: 'flex', borderBottom: '0.5px solid #F8F5F0', minHeight: 52 },
-  timeLabel: { width: 56, flexShrink: 0, fontSize: 11, color: '#B0A89F', padding: '4px 6px', borderRight: '0.5px solid #F0EAE4', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', paddingRight: 8, paddingTop: 6 },
-  cell: { flex: 1, padding: '3px', borderRight: '0.5px solid #F8F5F0', minWidth: 130 },
-  apptBlock: { borderRadius: 8, padding: '6px 8px', cursor: 'pointer', height: '100%', display: 'flex', flexDirection: 'column', gap: 3 },
-}
-
-const Dt = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.4)', display: 'flex', justifyContent: 'flex-end', zIndex: 100 },
-  panel: { width: 400, background: '#fff', height: '100vh', overflowY: 'auto', padding: 24, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  service: { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: INK },
-  meta: { fontSize: 12, color: STONE, marginTop: 3 },
-  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: STONE },
-  progressBar: { display: 'flex', gap: 4, marginBottom: 20, padding: '12px 0', borderBottom: '0.5px solid #F0EAE4' },
-  progressDot: { width: 10, height: 10, borderRadius: '50%', margin: '0 auto 4px' },
-  tokenBox: { background: '#FDF0F3', borderRadius: 10, padding: '12px 14px', marginBottom: 14 },
-  tokenLabel: { fontSize: 10, color: STONE, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 },
-  tokenVal: { fontSize: 20, fontWeight: 600, color: ROSE, fontFamily: 'monospace' },
-  clientName: { fontSize: 12, color: STONE, marginTop: 2 },
-  detailGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 },
-  detailItem: { background: MIST, borderRadius: 8, padding: '8px 10px' },
-  detailKey: { fontSize: 10, color: '#B0A89F', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.3px' },
-  detailVal: { fontSize: 13, fontWeight: 500, color: INK },
-  notesBox: { background: '#FAEEDA', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#6B4C1A', marginBottom: 14 },
-  actionsTitle: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 10 },
-  actions: { display: 'flex', flexWrap: 'wrap', gap: 8 },
-  actionBtn: { padding: '6px 12px', borderRadius: 8, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500 },
-}
-
-const Mo = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 },
-  modal: { background: '#fff', borderRadius: 16, padding: '28px', width: '100%', maxWidth: 500, boxShadow: '0 8px 48px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  title: { fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 600, color: INK },
-  close: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: STONE },
-  form: { display: 'flex', flexDirection: 'column', gap: 14 },
-  field: { display: 'flex', flexDirection: 'column', gap: 5 },
-  label: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.3px' },
-  input: { padding: '9px 12px', border: '0.5px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#FDFAF8', color: INK },
-  hint: { fontSize: 11, color: ROSE, marginTop: 2 },
-  summaryBox: { background: MIST, borderRadius: 8, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 },
-  summaryRow: { display: 'flex', justifyContent: 'space-between', fontSize: 13, color: INK },
-  cancelBtn: { padding: '9px 18px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
-  submitBtn: { padding: '9px 20px', background: ROSE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
 }

@@ -1,472 +1,682 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase.js'
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 
-const TODAY_LABEL = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+// ─── Constants ─────────────────────────────────────────────────
+const SALON_ID = "d4426e94-4dcb-41e4-90bb-71543533cbed";
 
-const MY_APPOINTMENTS = [
-  { id: 1, clientToken: '#A047', service: 'Bridal Makeup + Hair', time: '10:00 AM', duration: 180, amount: 8500, status: 'serving', notes: 'Pre-bridal trial. Client prefers soft tones.', checklist: [{ task: 'Skin prep + primer', done: true }, { task: 'Foundation + contouring', done: true }, { task: 'Eye makeup', done: false }, { task: 'Lips', done: false }, { task: 'Hair styling', done: false }, { task: 'Setting spray', done: false }] },
-  { id: 2, clientToken: '#B112', service: 'Hair Color — Balayage', time: '1:30 PM', duration: 120, amount: 6500, status: 'upcoming', notes: 'No ammonia dye.', checklist: [{ task: 'Consultation + patch test', done: false }, { task: 'Sectioning', done: false }, { task: 'Color application', done: false }, { task: 'Processing time', done: false }, { task: 'Rinse + toning', done: false }, { task: 'Blowdry + finish', done: false }] },
-  { id: 3, clientToken: '#D203', service: 'Keratin Treatment', time: '4:00 PM', duration: 120, amount: 5500, status: 'upcoming', notes: '', checklist: [{ task: 'Clarifying shampoo', done: false }, { task: 'Apply keratin solution', done: false }, { task: 'Processing (45 min)', done: false }, { task: 'Blow dry', done: false }, { task: 'Flat iron seal', done: false }] },
-]
+const APPT_STATUS_COLOR = {
+  scheduled:  { bg: "#dbeafe", color: "#1d4ed8", label: "Scheduled" },
+  confirmed:  { bg: "#d1fae5", color: "#065f46", label: "Confirmed" },
+  completed:  { bg: "#f3f4f6", color: "#374151", label: "Completed" },
+  cancelled:  { bg: "#fee2e2", color: "#991b1b", label: "Cancelled" },
+  "no-show":  { bg: "#fef3c7", color: "#92400e", label: "No Show"  },
+};
 
-const MY_EARNINGS = {
-  thisMonth: { base: 22000, incentive: 14200, advance: 5000, net: 31200, servicesCount: 48, revenue: 142000 },
-  weeklyEarnings: [{ week: 'W1', amount: 8200 }, { week: 'W2', amount: 11400 }, { week: 'W3', amount: 9800 }, { week: 'W4', amount: 10800 }],
+// ─── Phone masking (Client Shield) ─────────────────────────────
+function maskPhone(phone) {
+  if (!phone) return "••••••••••";
+  const p = phone.replace(/\D/g, "");
+  if (p.length >= 10) return p.slice(0, 2) + "••••••" + p.slice(-2);
+  return "••••••••••";
 }
 
-const MY_ATTENDANCE = { present: 22, absent: 1, halfDay: 1, leave: 0, checkedIn: true, checkInTime: '9:02 AM', checkOutTime: null }
-
-const MESSAGES = [
-  { id: 1, from: 'Owner', text: 'Great work on the bridal trial today!', time: '8:45 AM', read: true },
-  { id: 2, from: 'Owner', text: "Tomorrow's 11am slot has been rescheduled to 3pm.", time: 'Yesterday', read: false },
-]
-
-const STATUS = {
-  serving:  { label: 'Serving Now', color: '#8B3A52', bg: '#FDF0F3' },
-  upcoming: { label: 'Upcoming',    color: '#185FA5', bg: '#E6F1FB' },
-  done:     { label: 'Done',        color: '#0F6E56', bg: '#E1F5EE' },
-  cancelled:{ label: 'Cancelled',   color: '#993C1D', bg: '#FAECE7' },
+// ─── Greeting ──────────────────────────────────────────────────
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
 }
 
-function ApptDetail({ appt, onClose, onUpdate }) {
-  const [checklist, setChecklist] = useState(appt.checklist)
-  function toggleTask(i) {
-    const updated = checklist.map((t, idx) => idx === i ? { ...t, done: !t.done } : t)
-    setChecklist(updated)
-    onUpdate(appt.id, updated)
-  }
-  const done = checklist.filter(t => t.done).length
-  const pct = Math.round((done / checklist.length) * 100)
-  const s = STATUS[appt.status] || STATUS.upcoming
-  return (
-    <div style={D.overlay}>
-      <div style={D.panel}>
-        <div style={D.header}>
-          <div>
-            <div style={D.service}>{appt.service}</div>
-            <div style={D.meta}>{appt.time} · {appt.duration} min</div>
-          </div>
-          <button style={D.closeBtn} onClick={onClose}>✕</button>
-        </div>
-        <div style={D.tokenBox}>
-          <div style={D.tokenLabel}>🛡 Your client (masked for privacy)</div>
-          <div style={D.token}>{appt.clientToken}</div>
-          <div style={D.tokenSub}>Contact owner for client details</div>
-        </div>
-        <div style={{ ...D.statusBadge, background: s.bg, color: s.color }}>{s.label}</div>
-        {appt.notes && (
-          <div style={D.notesBox}>
-            <div style={D.notesTitle}>📋 Notes from owner</div>
-            <div style={D.notesText}>{appt.notes}</div>
-          </div>
-        )}
-        <div style={D.checklistTitle}>
-          Service Checklist · {done}/{checklist.length} done
-          <div style={D.progressBar}><div style={{ ...D.progressFill, width: `${pct}%` }} /></div>
-        </div>
-        {checklist.map((task, i) => (
-          <div key={i} style={D.checkItem} onClick={() => toggleTask(i)}>
-            <div style={{ ...D.checkbox, background: task.done ? '#0F6E56' : '#fff', borderColor: task.done ? '#0F6E56' : '#E8E0D8' }}>
-              {task.done && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
-            </div>
-            <span style={{ fontSize: 14, color: task.done ? '#B0A89F' : '#1A1208', textDecoration: task.done ? 'line-through' : 'none' }}>{task.task}</span>
-          </div>
-        ))}
-        {pct === 100 && <button style={D.markDoneBtn}>✓ Mark Service as Complete</button>}
-      </div>
-    </div>
-  )
+const fmt = (n) => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 0 })}`;
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
 }
 
+function timeNow() {
+  return new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════
 export default function EmployeeDashboard() {
-  const { signOut, profile } = useAuth()
-  const navigate = useNavigate()
-  const [tab, setTab] = useState('schedule')
-  const [selectedAppt, setSelectedAppt] = useState(null)
-  const [appointments, setAppointments] = useState(MY_APPOINTMENTS)
-  const [checkedIn, setCheckedIn] = useState(MY_ATTENDANCE.checkedIn)
-  const [checkInTime] = useState(MY_ATTENDANCE.checkInTime)
-  const [newMessage, setNewMessage] = useState('')
-  const [messages, setMessages] = useState(MESSAGES)
-  const [unread] = useState(messages.filter(m => !m.read).length)
-  const [time, setTime] = useState(new Date())
-  const [showPwdChange, setShowPwdChange] = useState(false)
-  const [newPwd, setNewPwd] = useState('')
-  const [confirmPwd, setConfirmPwd] = useState('')
-  const [pwdMsg, setPwdMsg] = useState('')
-  const [pwdLoading, setPwdLoading] = useState(false)
+  const { user } = useAuth();
+  const [loading, setLoading]         = useState(true);
+  const [staffProfile, setStaffProfile] = useState(null);
 
-  const EMPLOYEE = {
-    name: profile?.name || 'Employee',
-    role: profile?.designation || profile?.role || 'Staff',
-    incentiveRate: 10,
-  }
+  // ── Data ──
+  const [todayAppts, setTodayAppts]   = useState([]);
+  const [allAppts, setAllAppts]       = useState([]);
+  const [myClients, setMyClients]     = useState([]);
+  const [attendance, setAttendance]   = useState([]);
+  const [todayAtt, setTodayAtt]       = useState(null);
+  const [myInvoices, setMyInvoices]   = useState([]);
 
+  // ── UI ──
+  const [tab, setTab]                 = useState("home"); // home | schedule | clients | performance
+  const [checkingIn, setCheckingIn]   = useState(false);
+  const [currentTime, setCurrentTime] = useState(timeNow());
+
+  // ── Clock tick ──
   useEffect(() => {
-    const t = setInterval(() => setTime(new Date()), 1000)
-    return () => clearInterval(t)
-  }, [])
+    const t = setInterval(() => setCurrentTime(timeNow()), 30000);
+    return () => clearInterval(t);
+  }, []);
 
-  function updateChecklist(apptId, checklist) {
-    setAppointments(a => a.map(ap => ap.id === apptId ? { ...ap, checklist } : ap))
+  // ─── Fetch everything ────────────────────────────────────────
+  useEffect(() => {
+    if (user?.id) fetchAll();
+  }, [user]);
+
+  async function fetchAll() {
+    setLoading(true);
+    try {
+      // Find staff profile by user id
+      const { data: staffData } = await supabase
+        .from("staff")
+        .select("*")
+        .eq("salon_id", SALON_ID)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      // Fallback: match by email if user_id column doesn't exist
+      let staff = staffData;
+      if (!staff) {
+        const { data: byEmail } = await supabase
+          .from("staff")
+          .select("*")
+          .eq("salon_id", SALON_ID)
+          .eq("email", user.email)
+          .maybeSingle();
+        staff = byEmail;
+      }
+
+      setStaffProfile(staff);
+      if (!staff) { setLoading(false); return; }
+
+      const staffId = staff.id;
+      const today   = todayStr();
+
+      // Parallel fetch
+      const [apptRes, clientRes, attRes, invRes] = await Promise.all([
+        supabase.from("appointments").select("*").eq("salon_id", SALON_ID).eq("staff_id", staffId).order("scheduled_at"),
+        supabase.from("clients").select("id, name, phone_encrypted, tags, hair_type, skin_type, created_at").eq("salon_id", SALON_ID).eq("assigned_staff_id", staffId).order("name"),
+        supabase.from("attendance").select("*").eq("salon_id", SALON_ID).eq("staff_id", staffId).order("date", { ascending: false }).limit(30),
+        supabase.from("invoices").select("*").eq("salon_id", SALON_ID).eq("staff_id", staffId).order("created_at", { ascending: false }),
+      ]);
+
+      const appts = apptRes.data || [];
+      setAllAppts(appts);
+      setTodayAppts(appts.filter(a => (a.scheduled_at || a.created_at || "").slice(0, 10) === today));
+      setMyClients(clientRes.data || []);
+
+      const attList = attRes.data || [];
+      setAttendance(attList);
+      setTodayAtt(attList.find(a => a.date === today) || null);
+      setMyInvoices(invRes.data || []);
+    } catch (e) {
+      console.error("Employee dashboard error:", e);
+    }
+    setLoading(false);
   }
 
-  async function handleSignOut() {
-    await signOut()
-    navigate('/login')
+  // ─── Check In / Out ──────────────────────────────────────────
+  async function handleAttendance() {
+    if (!staffProfile) return;
+    setCheckingIn(true);
+    const today = todayStr();
+    const now   = timeNow();
+
+    try {
+      if (!todayAtt) {
+        // Check in
+        const { data } = await supabase.from("attendance").insert({
+          salon_id: SALON_ID,
+          staff_id: staffProfile.id,
+          staff_name: staffProfile.name,
+          date: today,
+          check_in: now,
+          status: "present",
+        }).select().single();
+        setTodayAtt(data);
+        setAttendance(prev => [data, ...prev]);
+      } else if (!todayAtt.check_out) {
+        // Check out
+        const { data } = await supabase.from("attendance")
+          .update({ check_out: now, updated_at: new Date().toISOString() })
+          .eq("id", todayAtt.id)
+          .select().single();
+        setTodayAtt(data);
+        setAttendance(prev => prev.map(a => a.id === data.id ? data : a));
+      }
+    } catch(e) { alert("Attendance error: " + e.message); }
+    setCheckingIn(false);
   }
 
-  async function handleChangePassword() {
-    if (newPwd.length < 6) { setPwdMsg('Minimum 6 characters required'); return }
-    if (newPwd !== confirmPwd) { setPwdMsg('Passwords do not match'); return }
-    setPwdLoading(true)
-    setPwdMsg('')
-    const { error } = await supabase.auth.updateUser({ password: newPwd })
-    if (error) { setPwdMsg(error.message); setPwdLoading(false); return }
-    setPwdMsg('✅ Password changed successfully!')
-    setNewPwd('')
-    setConfirmPwd('')
-    setPwdLoading(false)
-    setTimeout(() => { setShowPwdChange(false); setPwdMsg('') }, 2000)
+  // ─── Update appointment status ───────────────────────────────
+  async function updateApptStatus(apptId, status) {
+    await supabase.from("appointments").update({ status }).eq("id", apptId);
+    setTodayAppts(prev => prev.map(a => a.id === apptId ? { ...a, status } : a));
+    setAllAppts(prev => prev.map(a => a.id === apptId ? { ...a, status } : a));
   }
 
-  const servingNow = appointments.find(a => a.status === 'serving')
+  // ─── Performance metrics ─────────────────────────────────────
+  const thisMonth = myInvoices.filter(i => {
+    const d = new Date(i.created_at);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && i.status === "paid";
+  });
+  const monthRevenue = thisMonth.reduce((s, i) => s + Number(i.total), 0);
+  const monthInvoices = thisMonth.length;
+  const totalClients = myClients.length;
+  const presentDays = attendance.filter(a => a.status === "present").length;
+
+  // ─── Attendance streak ────────────────────────────────────────
+  let streak = 0;
+  for (const a of attendance) {
+    if (a.status === "present") streak++;
+    else break;
+  }
+
+  // ─── Upcoming appointments (next 7 days) ─────────────────────
+  const upcomingAppts = allAppts.filter(a => {
+    const d = new Date(a.scheduled_at || a.created_at);
+    const now = new Date();
+    const diff = (d - now) / 86400000;
+    return diff >= 0 && diff <= 7 && a.status !== "cancelled";
+  }).slice(0, 10);
+
+  // ─── Monthly attendance calendar (last 30 days) ───────────────
+  const last30 = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (29 - i));
+    const ds = d.toISOString().slice(0, 10);
+    const rec = attendance.find(a => a.date === ds);
+    return { date: ds, day: d.getDate(), status: rec?.status || "absent", checkIn: rec?.check_in, checkOut: rec?.check_out };
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════
+  if (loading) {
+    return (
+      <div style={E.loadingPage}>
+        <div style={E.spinner}/>
+        <div style={{ color:"#9ca3af", marginTop:16 }}>Loading your dashboard…</div>
+      </div>
+    );
+  }
+
+  if (!staffProfile) {
+    return (
+      <div style={E.loadingPage}>
+        <div style={{ fontSize:48 }}>🔍</div>
+        <div style={{ fontWeight:700, fontSize:18, marginTop:12 }}>Staff profile not found</div>
+        <div style={{ color:"#9ca3af", marginTop:6, maxWidth:340, textAlign:"center" }}>
+          Your account isn't linked to a staff profile yet. Ask the salon owner to set this up.
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={E.app}>
-      <div style={E.topbar}>
-        <div style={E.topLeft}>
-          <div style={E.brandLogo}>G</div>
+    <div style={E.page}>
+
+      {/* ── Hero Header ── */}
+      <div style={E.hero}>
+        <div style={E.heroLeft}>
+          <div style={E.avatar}>{staffProfile.name?.charAt(0)?.toUpperCase()}</div>
           <div>
-            <div style={E.empName}>{EMPLOYEE.name}</div>
-            <div style={E.empRole}>{EMPLOYEE.role}</div>
+            <div style={E.greetText}>{greeting()},</div>
+            <div style={E.nameText}>{staffProfile.name} ✨</div>
+            <div style={E.roleText}>{staffProfile.role || "Beauty Artist"} · Hyfy Salon</div>
           </div>
         </div>
-        <div style={E.topRight}>
-          <div style={E.clock}>{time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</div>
-          {unread > 0 && <div style={E.notifDot}>{unread}</div>}
+
+        {/* Attendance button */}
+        <div style={E.heroRight}>
+          <div style={E.clockBox}>
+            <div style={E.clockTime}>{currentTime}</div>
+            <div style={E.clockDate}>{new Date().toLocaleDateString("en-IN", { weekday:"long", day:"2-digit", month:"long" })}</div>
+          </div>
+          {!todayAtt ? (
+            <button style={E.checkInBtn} disabled={checkingIn} onClick={handleAttendance}>
+              {checkingIn ? "…" : "🟢 Check In"}
+            </button>
+          ) : !todayAtt.check_out ? (
+            <div style={{ textAlign:"center" }}>
+              <div style={E.checkedInBadge}>✅ Checked in at {todayAtt.check_in}</div>
+              <button style={E.checkOutBtn} disabled={checkingIn} onClick={handleAttendance}>
+                {checkingIn ? "…" : "🔴 Check Out"}
+              </button>
+            </div>
+          ) : (
+            <div style={E.checkedOutBadge}>
+              ✅ {todayAtt.check_in} → {todayAtt.check_out}
+            </div>
+          )}
         </div>
       </div>
 
-      <div style={E.todayBanner}>
-        <div>
-          <div style={E.todayDate}>{TODAY_LABEL}</div>
-          <div style={E.todayStats}>{appointments.length} appointments · {appointments.filter(a => a.status === 'done').length} done</div>
-        </div>
-        <button style={{ ...E.checkInBtn, background: checkedIn ? '#FAECE7' : '#E1F5EE', color: checkedIn ? '#993C1D' : '#0F6E56' }}
-          onClick={() => setCheckedIn(!checkedIn)}>
-          {checkedIn ? `✓ Checked in ${checkInTime}` : '⏱ Check In'}
-        </button>
-      </div>
-
-      {servingNow && (
-        <div style={E.servingAlert} onClick={() => setSelectedAppt(servingNow)}>
-          <div style={E.servingDot} />
-          <div style={{ flex: 1 }}>
-            <div style={E.servingLabel}>Currently serving</div>
-            <div style={E.servingService}>{servingNow.service} · {servingNow.clientToken}</div>
-          </div>
-          <div style={E.servingArrow}>→</div>
-        </div>
-      )}
-
-      <div style={E.tabs}>
+      {/* ── Tabs ── */}
+      <div style={E.tabRow}>
         {[
-          { id: 'schedule', label: '📅 Schedule' },
-          { id: 'earnings', label: '💰 Earnings' },
-          { id: 'attendance', label: '⏰ Attendance' },
-          { id: 'messages', label: `💬 Messages${unread > 0 ? ` (${unread})` : ''}` },
-        ].map(t => (
-          <button key={t.id} style={{ ...E.tab, ...(tab === t.id ? E.tabOn : {}) }} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
+          ["home",        "🏠 Home"],
+          ["schedule",    `📅 Schedule${todayAppts.length ? ` (${todayAppts.length})` : ""}`],
+          ["clients",     `👥 My Clients (${totalClients})`],
+          ["performance", "📊 Performance"],
+        ].map(([k, l]) => (
+          <button key={k} style={{ ...E.tab, ...(tab === k ? E.tabActive : {}) }} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
 
-      <div style={E.content}>
-        {tab === 'schedule' && (
-          <div>
-            <div style={E.sectionTitle}>Today's Appointments</div>
-            {appointments.map(appt => {
-              const s = STATUS[appt.status] || STATUS.upcoming
-              const done = appt.checklist.filter(t => t.done).length
-              return (
-                <div key={appt.id} style={E.apptCard} onClick={() => setSelectedAppt(appt)}>
-                  <div style={E.apptTime}>{appt.time}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={E.apptService}>{appt.service}</div>
-                    <div style={E.apptToken}>🛡 {appt.clientToken} · {appt.duration} min</div>
-                    <div style={E.apptProgress}>
-                      <div style={E.apptProgressBar}>
-                        <div style={{ ...E.apptProgressFill, width: `${(done / appt.checklist.length) * 100}%` }} />
+      {/* ══════════════════════════════════════════════════
+          HOME TAB
+      ══════════════════════════════════════════════════ */}
+      {tab === "home" && (
+        <div>
+          {/* KPI row */}
+          <div style={E.kpiGrid}>
+            {[
+              { icon:"💰", label:"Revenue This Month", value:fmt(monthRevenue),   color:"#10b981" },
+              { icon:"🧾", label:"Invoices This Month", value:monthInvoices,       color:"#6366f1" },
+              { icon:"👥", label:"My Clients",          value:totalClients,         color:"#be185d" },
+              { icon:"📅", label:"Attendance Streak",   value:`${streak} days`,     color:"#f59e0b" },
+            ].map((k, i) => (
+              <div key={i} style={E.kpiCard}>
+                <div style={{ fontSize:26, marginBottom:8 }}>{k.icon}</div>
+                <div style={{ ...E.kpiVal, color:k.color }}>{k.value}</div>
+                <div style={E.kpiLabel}>{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Today's Schedule preview */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>📅 Today's Appointments</div>
+            {todayAppts.length === 0 ? (
+              <div style={E.empty}>No appointments scheduled for today — enjoy your day! 🌸</div>
+            ) : (
+              <div>
+                {todayAppts.map(appt => {
+                  const sc = APPT_STATUS_COLOR[appt.status] || APPT_STATUS_COLOR.scheduled;
+                  return (
+                    <div key={appt.id} style={E.apptRow}>
+                      <div style={{ ...E.apptTime }}>
+                        {appt.scheduled_at
+                          ? new Date(appt.scheduled_at).toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true })
+                          : "—"}
                       </div>
-                      <span style={E.apptProgressText}>{done}/{appt.checklist.length} tasks</span>
+                      <div style={{ flex:1 }}>
+                        <div style={E.apptClient}>{appt.client_name || "Client"}</div>
+                        <div style={E.apptService}>{appt.service_name || appt.notes || "Appointment"}</div>
+                      </div>
+                      <span style={{ ...E.badge, background:sc.bg, color:sc.color }}>{sc.label}</span>
                     </div>
-                  </div>
-                  <span style={{ ...E.statusBadge, background: s.bg, color: s.color }}>{s.label}</span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {tab === 'earnings' && (
-          <div>
-            <div style={E.sectionTitle}>My Earnings — This Month</div>
-            <div style={E.earningsCard}>
-              <div style={E.earningsLabel}>Net Salary</div>
-              <div style={E.earningsAmount}>₹{MY_EARNINGS.thisMonth.net.toLocaleString()}</div>
-              <div style={E.earningsSub}>{MY_EARNINGS.thisMonth.servicesCount} services · ₹{MY_EARNINGS.thisMonth.revenue.toLocaleString()} revenue</div>
-            </div>
-            <div style={E.breakdownCard}>
-              {[
-                { label: 'Base Salary', value: MY_EARNINGS.thisMonth.base, color: '#1A1208' },
-                { label: `Incentive (${EMPLOYEE.incentiveRate}%)`, value: MY_EARNINGS.thisMonth.incentive, color: '#0F6E56' },
-                { label: 'Advance Deduction', value: -MY_EARNINGS.thisMonth.advance, color: '#993C1D' },
-              ].map(row => (
-                <div key={row.label} style={E.breakdownRow}>
-                  <span style={{ fontSize: 13, color: '#6B6258' }}>{row.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: row.color }}>
-                    {row.value < 0 ? `- ₹${Math.abs(row.value).toLocaleString()}` : `₹${row.value.toLocaleString()}`}
-                  </span>
-                </div>
-              ))}
-              <div style={E.breakdownTotal}>
-                <span>Net Payable</span>
-                <span style={{ color: '#8B3A52' }}>₹{MY_EARNINGS.thisMonth.net.toLocaleString()}</span>
-              </div>
-            </div>
-            <div style={E.sectionTitle}>Weekly Performance</div>
-            <div style={E.weeklyGrid}>
-              {MY_EARNINGS.weeklyEarnings.map(w => (
-                <div key={w.week} style={E.weekCard}>
-                  <div style={E.weekLabel}>{w.week}</div>
-                  <div style={E.weekAmount}>₹{(w.amount / 1000).toFixed(1)}k</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {tab === 'attendance' && (
-          <div>
-            <div style={E.sectionTitle}>This Month's Attendance</div>
-            <div style={E.attendanceGrid}>
-              {[
-                { label: 'Present', value: MY_ATTENDANCE.present, color: '#0F6E56', bg: '#E1F5EE' },
-                { label: 'Absent', value: MY_ATTENDANCE.absent, color: '#993C1D', bg: '#FAECE7' },
-                { label: 'Half Day', value: MY_ATTENDANCE.halfDay, color: '#BA7517', bg: '#FAEEDA' },
-                { label: 'Leave', value: MY_ATTENDANCE.leave, color: '#533AB7', bg: '#EEEDFE' },
-              ].map(a => (
-                <div key={a.label} style={{ ...E.attendanceCard, background: a.bg }}>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: a.color }}>{a.value}</div>
-                  <div style={{ fontSize: 11, color: a.color, marginTop: 2 }}>{a.label}</div>
-                </div>
-              ))}
-            </div>
-            <div style={E.checkInCard}>
-              <div style={E.checkInTitle}>Today's Check-in</div>
-              <div style={E.checkInRow}>
-                <div>
-                  <div style={E.checkInLabel}>Check In</div>
-                  <div style={E.checkInTime}>{checkedIn ? checkInTime : '—'}</div>
-                </div>
-                <div>
-                  <div style={E.checkInLabel}>Check Out</div>
-                  <div style={E.checkInTime}>{MY_ATTENDANCE.checkOutTime || '—'}</div>
-                </div>
-                <button style={{ ...E.checkInBtn2, background: checkedIn ? '#FAECE7' : '#E1F5EE', color: checkedIn ? '#993C1D' : '#0F6E56' }}
-                  onClick={() => setCheckedIn(!checkedIn)}>
-                  {checkedIn ? 'Check Out' : 'Check In'}
-                </button>
-              </div>
-            </div>
-            <div style={E.attendanceNote}>📍 GPS-verified attendance · Managed by owner</div>
-          </div>
-        )}
-
-        {tab === 'messages' && (
-          <div>
-            <div style={E.sectionTitle}>Messages from Owner</div>
-            <div style={E.messagesList}>
-              {messages.map(m => (
-                <div key={m.id} style={{ ...E.messageItem, background: m.read ? '#fff' : '#FDF0F3' }}>
-                  <div style={E.messageFrom}>👤 {m.from}</div>
-                  <div style={E.messageText}>{m.text}</div>
-                  <div style={E.messageTime}>{m.time}</div>
-                  {!m.read && <div style={E.unreadDot} />}
-                </div>
-              ))}
-            </div>
-            <div style={E.messageInputRow}>
-              <input style={E.messageInput} placeholder="Reply to owner..." value={newMessage}
-                onChange={e => setNewMessage(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && newMessage.trim()) {
-                    setMessages(m => [...m, { id: Date.now(), from: 'Me', text: newMessage, time: 'Just now', read: true }])
-                    setNewMessage('')
-                  }
-                }} />
-              <button style={E.sendBtn} onClick={() => {
-                if (newMessage.trim()) {
-                  setMessages(m => [...m, { id: Date.now(), from: 'Me', text: newMessage, time: 'Just now', read: true }])
-                  setNewMessage('')
-                }
-              }}>Send</button>
-            </div>
-            <div style={E.messageNote}>🛡 You can only message the owner. Client contact details are not shared.</div>
-          </div>
-        )}
-      </div>
-
-      <div style={E.footer}>
-        {showPwdChange ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#1A1208' }}>🔑 Change Password</div>
-            <input
-              style={{ padding: '10px 12px', border: '1px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
-              type="password"
-              placeholder="New password (min 6 chars)"
-              value={newPwd}
-              onChange={e => setNewPwd(e.target.value)}
-            />
-            <input
-              style={{ padding: '10px 12px', border: '1px solid #E8E0D8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
-              type="password"
-              placeholder="Confirm new password"
-              value={confirmPwd}
-              onChange={e => setConfirmPwd(e.target.value)}
-            />
-            {pwdMsg && (
-              <div style={{ fontSize: 12, color: pwdMsg.includes('✅') ? '#0F6E56' : '#C62828', padding: '6px 10px', background: pwdMsg.includes('✅') ? '#E1F5EE' : '#FFF0F0', borderRadius: 6 }}>
-                {pwdMsg}
+                  );
+                })}
               </div>
             )}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                style={{ flex: 1, padding: '10px', background: '#8B3A52', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', opacity: pwdLoading ? 0.7 : 1 }}
-                onClick={handleChangePassword}
-                disabled={pwdLoading}
-              >
-                {pwdLoading ? 'Updating...' : 'Update Password'}
-              </button>
-              <button
-                style={{ flex: 1, padding: '10px', background: '#F8F5F0', color: '#6B6258', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
-                onClick={() => { setShowPwdChange(false); setNewPwd(''); setConfirmPwd(''); setPwdMsg('') }}
-              >
-                Cancel
-              </button>
+          </div>
+
+          {/* Attendance mini calendar */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>📆 This Month's Attendance</div>
+            <div style={E.attGrid}>
+              {last30.map((day, i) => (
+                <div key={i} title={`${day.date}${day.checkIn ? ` · In: ${day.checkIn}` : ""}${day.checkOut ? ` Out: ${day.checkOut}` : ""}`}
+                  style={{ ...E.attDot, background:
+                    day.status === "present" ? "#10b981" :
+                    day.date === todayStr() ? "#fde68a" : "#f3f4f6",
+                    color: day.status==="present" ? "#fff" : day.date===todayStr() ? "#92400e" : "#9ca3af"
+                  }}>
+                  {day.day}
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:16, marginTop:12, fontSize:12, color:"#9ca3af" }}>
+              <span><span style={{ ...E.legend, background:"#10b981" }}/> Present ({presentDays})</span>
+              <span><span style={{ ...E.legend, background:"#fde68a" }}/> Today</span>
+              <span><span style={{ ...E.legend, background:"#f3f4f6" }}/> Absent</span>
             </div>
           </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={{ ...E.signOutBtn, flex: 1, background: '#FDF0F3', color: '#8B3A52' }} onClick={() => setShowPwdChange(true)}>
-              🔑 Change Password
-            </button>
-            <button style={{ ...E.signOutBtn, flex: 1 }} onClick={handleSignOut}>
-              Sign Out
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {selectedAppt && (
-        <ApptDetail appt={selectedAppt} onClose={() => setSelectedAppt(null)} onUpdate={updateChecklist} />
+      {/* ══════════════════════════════════════════════════
+          SCHEDULE TAB
+      ══════════════════════════════════════════════════ */}
+      {tab === "schedule" && (
+        <div>
+          {/* Today */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>📅 Today — {new Date().toLocaleDateString("en-IN", { weekday:"long", day:"2-digit", month:"long" })}</div>
+            {todayAppts.length === 0 ? (
+              <div style={E.empty}>No appointments today.</div>
+            ) : (
+              todayAppts.map(appt => {
+                const sc = APPT_STATUS_COLOR[appt.status] || APPT_STATUS_COLOR.scheduled;
+                return (
+                  <div key={appt.id} style={E.scheduleCard}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                      <div>
+                        <div style={E.scheduleTime}>
+                          {appt.scheduled_at
+                            ? new Date(appt.scheduled_at).toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true })
+                            : "Time not set"}
+                        </div>
+                        <div style={E.scheduleClient}>{appt.client_name || "Client"}</div>
+                        <div style={E.scheduleService}>{appt.service_name || appt.notes || "Appointment"}</div>
+                        {appt.duration_min && <div style={E.scheduleDuration}>⏱ {appt.duration_min} min</div>}
+                      </div>
+                      <span style={{ ...E.badge, background:sc.bg, color:sc.color }}>{sc.label}</span>
+                    </div>
+                    {/* Status actions */}
+                    {appt.status !== "completed" && appt.status !== "cancelled" && (
+                      <div style={{ display:"flex", gap:6, marginTop:12 }}>
+                        <button style={{ ...E.tinyBtn, background:"#d1fae5", color:"#065f46" }} onClick={() => updateApptStatus(appt.id, "completed")}>
+                          ✅ Mark Done
+                        </button>
+                        <button style={{ ...E.tinyBtn, background:"#dbeafe", color:"#1d4ed8" }} onClick={() => updateApptStatus(appt.id, "confirmed")}>
+                          Confirm
+                        </button>
+                        <button style={{ ...E.tinyBtn, background:"#fee2e2", color:"#991b1b" }} onClick={() => updateApptStatus(appt.id, "no-show")}>
+                          No Show
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Upcoming (next 7 days) */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>🗓️ Upcoming — Next 7 Days</div>
+            {upcomingAppts.length === 0 ? (
+              <div style={E.empty}>No upcoming appointments in the next 7 days.</div>
+            ) : (
+              <div>
+                <div style={E.tableHead}>
+                  <div style={{ flex:1.5 }}>Date & Time</div>
+                  <div style={{ flex:2 }}>Client</div>
+                  <div style={{ flex:2 }}>Service</div>
+                  <div style={{ flex:1, textAlign:"center" }}>Status</div>
+                </div>
+                {upcomingAppts.map(appt => {
+                  const sc = APPT_STATUS_COLOR[appt.status] || APPT_STATUS_COLOR.scheduled;
+                  const d = new Date(appt.scheduled_at || appt.created_at);
+                  return (
+                    <div key={appt.id} style={E.tableRow}>
+                      <div style={{ flex:1.5 }}>
+                        <div style={{ fontWeight:600, fontSize:13 }}>{d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}</div>
+                        <div style={{ fontSize:12, color:"#9ca3af" }}>{d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",hour12:true})}</div>
+                      </div>
+                      <div style={{ flex:2, fontWeight:600 }}>{appt.client_name || "Client"}</div>
+                      <div style={{ flex:2, color:"#6b7280", fontSize:13 }}>{appt.service_name || appt.notes || "—"}</div>
+                      <div style={{ flex:1, textAlign:"center" }}>
+                        <span style={{ ...E.badge, background:sc.bg, color:sc.color }}>{sc.label}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          CLIENTS TAB
+      ══════════════════════════════════════════════════ */}
+      {tab === "clients" && (
+        <div style={E.card}>
+          <div style={E.cardTitle}>
+            👥 My Assigned Clients
+            <span style={{ fontSize:12, fontWeight:400, color:"#9ca3af", marginLeft:8 }}>
+              🔒 Phone numbers are protected by Client Shield
+            </span>
+          </div>
+
+          {myClients.length === 0 ? (
+            <div style={E.empty}>No clients assigned to you yet. Ask the owner to assign clients.</div>
+          ) : (
+            <>
+              <div style={E.tableHead}>
+                <div style={{ flex:2 }}>Name</div>
+                <div style={{ flex:1.5 }}>Phone</div>
+                <div style={{ flex:1.5 }}>Hair Type</div>
+                <div style={{ flex:1.5 }}>Skin Type</div>
+                <div style={{ flex:2 }}>Tags</div>
+                <div style={{ flex:1.5 }}>Since</div>
+              </div>
+              {myClients.map(client => (
+                <div key={client.id} style={E.tableRow}>
+                  <div style={{ flex:2 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={E.clientAvatar}>{client.name?.charAt(0)?.toUpperCase()}</div>
+                      <span style={{ fontWeight:600 }}>{client.name}</span>
+                    </div>
+                  </div>
+                  <div style={{ flex:1.5 }}>
+                    <span style={E.maskedPhone}>🔒 {maskPhone(client.phone_encrypted)}</span>
+                  </div>
+                  <div style={{ flex:1.5, fontSize:13, color:"#6b7280" }}>{client.hair_type || "—"}</div>
+                  <div style={{ flex:1.5, fontSize:13, color:"#6b7280" }}>{client.skin_type || "—"}</div>
+                  <div style={{ flex:2 }}>
+                    <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                      {(client.tags || []).slice(0,3).map((tag, i) => (
+                        <span key={i} style={E.tag}>{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ flex:1.5, fontSize:12, color:"#9ca3af" }}>
+                    {new Date(client.created_at).toLocaleDateString("en-IN", { day:"2-digit", month:"short", year:"numeric" })}
+                  </div>
+                </div>
+              ))}
+
+              {/* Anti-poaching notice */}
+              <div style={E.shieldNotice}>
+                🛡️ <strong>Client Shield Active</strong> — Phone numbers are masked to protect client privacy.
+                You can serve clients fully without accessing their contact details.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════
+          PERFORMANCE TAB
+      ══════════════════════════════════════════════════ */}
+      {tab === "performance" && (
+        <div>
+          {/* This month stats */}
+          <div style={E.perfGrid}>
+            {[
+              { icon:"💰", label:"Revenue — This Month", value:fmt(monthRevenue),   color:"#10b981", sub:`${monthInvoices} paid invoices` },
+              { icon:"👥", label:"Total Clients",         value:totalClients,         color:"#be185d", sub:"assigned to you" },
+              { icon:"✅", label:"Attendance — This Month",value:`${presentDays} days`,color:"#6366f1", sub:`${streak} day streak 🔥` },
+              { icon:"📅", label:"Total Appointments",    value:allAppts.filter(a=>a.status==="completed").length, color:"#f59e0b", sub:"completed lifetime" },
+            ].map((k, i) => (
+              <div key={i} style={E.perfCard}>
+                <div style={{ fontSize:32 }}>{k.icon}</div>
+                <div style={{ ...E.kpiVal, color:k.color, fontSize:28 }}>{k.value}</div>
+                <div style={{ fontWeight:600, fontSize:14 }}>{k.label}</div>
+                <div style={{ color:"#9ca3af", fontSize:12, marginTop:2 }}>{k.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Revenue by month (last 6) */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>📈 My Revenue — Last 6 Months</div>
+            {(() => {
+              const months = Array.from({ length:6 }, (_, i) => {
+                const d = new Date(); d.setMonth(d.getMonth() - (5-i));
+                const m=d.getMonth(), y=d.getFullYear();
+                const val = myInvoices.filter(inv => {
+                  const id = new Date(inv.created_at);
+                  return id.getMonth()===m && id.getFullYear()===y && inv.status==="paid";
+                }).reduce((s,inv)=>s+Number(inv.total),0);
+                return { label:["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m], value:val };
+              });
+              const max = Math.max(...months.map(m=>m.value), 1);
+              return (
+                <div style={{ display:"flex", alignItems:"flex-end", gap:12, height:140, paddingTop:16 }}>
+                  {months.map((m,i) => (
+                    <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                      <div style={{ fontSize:10, color:"#9ca3af" }}>{m.value > 0 ? (m.value>=1000?`₹${(m.value/1000).toFixed(1)}K`:`₹${m.value}`) : ""}</div>
+                      <div style={{ width:"100%", background:"#f3f4f6", borderRadius:"4px 4px 0 0", height: Math.max(4,(m.value/max)*100), position:"relative", overflow:"hidden" }}>
+                        <div style={{ position:"absolute", inset:0, background:"linear-gradient(to top,#10b981,#6ee7b7)", borderRadius:"4px 4px 0 0" }}/>
+                      </div>
+                      <div style={{ fontSize:10, color:"#9ca3af" }}>{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Recent invoices */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>🧾 My Recent Invoices</div>
+            {myInvoices.length === 0 ? (
+              <div style={E.empty}>No invoices assigned to you yet.</div>
+            ) : (
+              <>
+                <div style={E.tableHead}>
+                  <div style={{ flex:1.5 }}>Invoice #</div>
+                  <div style={{ flex:2 }}>Client</div>
+                  <div style={{ flex:1.5, textAlign:"right" }}>Amount</div>
+                  <div style={{ flex:1, textAlign:"center" }}>Status</div>
+                  <div style={{ flex:1.5 }}>Date</div>
+                </div>
+                {myInvoices.slice(0, 15).map(inv => {
+                  const statusStyle = {
+                    paid:    { bg:"#d1fae5", color:"#065f46" },
+                    partial: { bg:"#fef3c7", color:"#92400e" },
+                    unpaid:  { bg:"#fee2e2", color:"#991b1b" },
+                    advance: { bg:"#ede9fe", color:"#5b21b6" },
+                  }[inv.status] || { bg:"#f3f4f6", color:"#6b7280" };
+                  return (
+                    <div key={inv.id} style={E.tableRow}>
+                      <div style={{ flex:1.5, fontWeight:600, color:"#6366f1", fontSize:13 }}>{inv.invoice_number}</div>
+                      <div style={{ flex:2, fontWeight:600 }}>{inv.client_name || "Walk-in"}</div>
+                      <div style={{ flex:1.5, textAlign:"right", fontWeight:700, color:"#10b981" }}>{fmt(inv.total)}</div>
+                      <div style={{ flex:1, textAlign:"center" }}>
+                        <span style={{ ...E.badge, background:statusStyle.bg, color:statusStyle.color, textTransform:"capitalize" }}>{inv.status}</span>
+                      </div>
+                      <div style={{ flex:1.5, fontSize:12, color:"#9ca3af" }}>
+                        {new Date(inv.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+
+          {/* Attendance log */}
+          <div style={E.card}>
+            <div style={E.cardTitle}>📆 Attendance Log — Last 30 Days</div>
+            <div style={E.tableHead}>
+              <div style={{ flex:1.5 }}>Date</div>
+              <div style={{ flex:1, textAlign:"center" }}>Status</div>
+              <div style={{ flex:1 }}>Check In</div>
+              <div style={{ flex:1 }}>Check Out</div>
+              <div style={{ flex:1.5 }}>Hours</div>
+            </div>
+            {last30.slice().reverse().filter(d => d.status !== "absent" || d.date === todayStr()).map((day, i) => {
+              let hours = "—";
+              if (day.checkIn && day.checkOut) {
+                const [ih, im] = day.checkIn.replace(/\s?(AM|PM)/i,"").split(":").map(Number);
+                const [oh, om] = day.checkOut.replace(/\s?(AM|PM)/i,"").split(":").map(Number);
+                const diff = (oh*60+om) - (ih*60+im);
+                if (diff > 0) hours = `${Math.floor(diff/60)}h ${diff%60}m`;
+              }
+              return (
+                <div key={i} style={E.tableRow}>
+                  <div style={{ flex:1.5, fontSize:13 }}>
+                    {new Date(day.date).toLocaleDateString("en-IN",{weekday:"short",day:"2-digit",month:"short"})}
+                  </div>
+                  <div style={{ flex:1, textAlign:"center" }}>
+                    <span style={{ ...E.badge,
+                      background: day.status==="present"?"#d1fae5":"#f3f4f6",
+                      color: day.status==="present"?"#065f46":"#9ca3af",
+                      textTransform:"capitalize" }}>
+                      {day.status==="present"?"✅ Present":"—"}
+                    </span>
+                  </div>
+                  <div style={{ flex:1, fontSize:13, color:"#374151" }}>{day.checkIn || "—"}</div>
+                  <div style={{ flex:1, fontSize:13, color:"#374151" }}>{day.checkOut || "—"}</div>
+                  <div style={{ flex:1.5, fontSize:13, fontWeight:600, color:"#6366f1" }}>{hours}</div>
+                </div>
+              );
+            })}
+            {attendance.length === 0 && <div style={E.empty}>No attendance records found.</div>}
+          </div>
+        </div>
       )}
     </div>
-  )
+  );
 }
 
-const ROSE = '#8B3A52', INK = '#1A1208', STONE = '#6B6258', MIST = '#F8F5F0'
-
+// ═══════════════════════════════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════════════════════════════
 const E = {
-  app: { maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: MIST, fontFamily: "'DM Sans', sans-serif", display: 'flex', flexDirection: 'column' },
-  topbar: { background: INK, padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  topLeft: { display: 'flex', alignItems: 'center', gap: 10 },
-  brandLogo: { width: 36, height: 36, borderRadius: 9, background: ROSE, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F5DFA0', fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 600 },
-  empName: { fontSize: 14, fontWeight: 500, color: '#fff' },
-  empRole: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 1 },
-  topRight: { display: 'flex', alignItems: 'center', gap: 8 },
-  clock: { fontSize: 18, fontWeight: 600, color: '#F5DFA0', fontFamily: "'Cormorant Garamond', serif" },
-  notifDot: { width: 20, height: 20, borderRadius: '50%', background: ROSE, color: '#fff', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600 },
-  todayBanner: { background: '#fff', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '0.5px solid #E8E0D8' },
-  todayDate: { fontSize: 14, fontWeight: 500, color: INK },
-  todayStats: { fontSize: 11, color: STONE, marginTop: 2 },
-  checkInBtn: { padding: '7px 14px', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  servingAlert: { background: '#FDF0F3', border: '0.5px solid #E8B4C0', margin: '12px 16px', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' },
-  servingDot: { width: 10, height: 10, borderRadius: '50%', background: ROSE, flexShrink: 0 },
-  servingLabel: { fontSize: 10, color: STONE, textTransform: 'uppercase', letterSpacing: '0.5px' },
-  servingService: { fontSize: 13, fontWeight: 500, color: INK, marginTop: 2 },
-  servingArrow: { color: ROSE, fontSize: 16 },
-  tabs: { display: 'flex', background: '#fff', borderBottom: '0.5px solid #E8E0D8', overflowX: 'auto' },
-  tab: { flex: 1, padding: '12px 8px', border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', color: STONE, fontFamily: 'inherit', fontWeight: 500, whiteSpace: 'nowrap', borderBottom: '2px solid transparent' },
-  tabOn: { color: ROSE, borderBottom: `2px solid ${ROSE}` },
-  content: { flex: 1, padding: '16px' },
-  sectionTitle: { fontSize: 11, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 12, marginTop: 4 },
-  apptCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 12, padding: '14px', marginBottom: 10, display: 'flex', gap: 12, cursor: 'pointer', alignItems: 'flex-start' },
-  apptTime: { fontSize: 13, fontWeight: 600, color: ROSE, minWidth: 58, paddingTop: 2 },
-  apptService: { fontSize: 14, fontWeight: 500, color: INK, marginBottom: 3 },
-  apptToken: { fontSize: 12, color: STONE, marginBottom: 6 },
-  apptProgress: { display: 'flex', alignItems: 'center', gap: 8 },
-  apptProgressBar: { flex: 1, height: 4, background: '#F0EAE4', borderRadius: 2, overflow: 'hidden' },
-  apptProgressFill: { height: '100%', background: ROSE, borderRadius: 2 },
-  apptProgressText: { fontSize: 10, color: STONE, whiteSpace: 'nowrap' },
-  statusBadge: { fontSize: 10, padding: '3px 8px', borderRadius: 10, fontWeight: 500, display: 'inline-block' },
-  earningsCard: { background: INK, borderRadius: 14, padding: '20px', marginBottom: 12, textAlign: 'center' },
-  earningsLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6 },
-  earningsAmount: { fontFamily: "'Cormorant Garamond', serif", fontSize: 40, fontWeight: 600, color: '#F5DFA0' },
-  earningsSub: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
-  breakdownCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 12, padding: '14px 16px', marginBottom: 16 },
-  breakdownRow: { display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '0.5px solid #F8F5F0' },
-  breakdownTotal: { display: 'flex', justifyContent: 'space-between', paddingTop: 10, fontSize: 16, fontWeight: 600, color: INK },
-  weeklyGrid: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8, marginBottom: 14 },
-  weekCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 10, padding: '12px', textAlign: 'center' },
-  weekLabel: { fontSize: 10, color: STONE, marginBottom: 4 },
-  weekAmount: { fontSize: 15, fontWeight: 600, color: ROSE },
-  attendanceGrid: { display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 14 },
-  attendanceCard: { borderRadius: 10, padding: '12px', textAlign: 'center' },
-  checkInCard: { background: '#fff', border: '0.5px solid #E8E0D8', borderRadius: 12, padding: '14px 16px', marginBottom: 10 },
-  checkInTitle: { fontSize: 12, fontWeight: 500, color: STONE, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 },
-  checkInRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  checkInLabel: { fontSize: 10, color: STONE },
-  checkInTime: { fontSize: 16, fontWeight: 600, color: INK, marginTop: 2 },
-  checkInBtn2: { padding: '8px 16px', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' },
-  attendanceNote: { fontSize: 11, color: '#B0A89F', textAlign: 'center' },
-  messagesList: { display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 },
-  messageItem: { border: '0.5px solid #E8E0D8', borderRadius: 12, padding: '12px 14px', position: 'relative' },
-  messageFrom: { fontSize: 11, fontWeight: 500, color: STONE, marginBottom: 4 },
-  messageText: { fontSize: 13, color: INK, lineHeight: 1.5 },
-  messageTime: { fontSize: 10, color: '#B0A89F', marginTop: 6 },
-  unreadDot: { position: 'absolute', top: 12, right: 12, width: 8, height: 8, borderRadius: '50%', background: ROSE },
-  messageInputRow: { display: 'flex', gap: 8, marginBottom: 10 },
-  messageInput: { flex: 1, padding: '10px 14px', border: '0.5px solid #E8E0D8', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fff' },
-  sendBtn: { padding: '10px 16px', background: ROSE, color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
-  messageNote: { fontSize: 11, color: '#B0A89F', textAlign: 'center' },
-  footer: { padding: '12px 16px', borderTop: '0.5px solid #E8E0D8', background: '#fff' },
-  signOutBtn: { padding: '10px', background: MIST, color: STONE, border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' },
-}
-
-const D = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(26,18,8,0.5)', display: 'flex', alignItems: 'flex-end', zIndex: 100 },
-  panel: { background: '#fff', borderRadius: '20px 20px 0 0', padding: '24px 20px', width: '100%', maxHeight: '85vh', overflowY: 'auto' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  service: { fontFamily: "'Cormorant Garamond', serif", fontSize: 20, fontWeight: 600, color: '#1A1208' },
-  meta: { fontSize: 12, color: '#6B6258', marginTop: 2 },
-  closeBtn: { background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6B6258' },
-  tokenBox: { background: '#FDF0F3', borderRadius: 10, padding: '12px 14px', marginBottom: 12, textAlign: 'center' },
-  tokenLabel: { fontSize: 10, color: '#6B6258', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 },
-  token: { fontSize: 28, fontWeight: 700, color: '#8B3A52', fontFamily: "'Cormorant Garamond', serif", letterSpacing: 2 },
-  tokenSub: { fontSize: 11, color: '#B0A89F', marginTop: 4 },
-  statusBadge: { display: 'inline-block', fontSize: 11, padding: '4px 12px', borderRadius: 10, fontWeight: 500, marginBottom: 12 },
-  notesBox: { background: '#FAEEDA', borderRadius: 10, padding: '10px 14px', marginBottom: 14 },
-  notesTitle: { fontSize: 11, fontWeight: 500, color: '#6B4C1A', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' },
-  notesText: { fontSize: 13, color: '#6B4C1A', lineHeight: 1.5 },
-  checklistTitle: { fontSize: 12, fontWeight: 500, color: '#6B6258', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 },
-  progressBar: { height: 4, background: '#F0EAE4', borderRadius: 2, overflow: 'hidden', marginTop: 6 },
-  progressFill: { height: '100%', background: '#8B3A52', borderRadius: 2, transition: 'width 0.3s' },
-  checkItem: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '0.5px solid #F8F5F0', cursor: 'pointer' },
-  checkbox: { width: 22, height: 22, borderRadius: 6, border: '1.5px solid', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.2s' },
-  markDoneBtn: { width: '100%', padding: '12px', background: '#0F6E56', color: '#fff', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginTop: 14 },
-}
+  page:         { padding:"24px", maxWidth:1300, margin:"0 auto", fontFamily:"'Segoe UI',sans-serif", color:"#1a1a1a" },
+  loadingPage:  { display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:"60vh", gap:8 },
+  spinner:      { width:40, height:40, borderRadius:"50%", border:"3px solid #f3f4f6", borderTopColor:"#be185d" },
+  hero:         { background:"linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)", borderRadius:20, padding:"28px 32px", marginBottom:24, display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:20, color:"#fff" },
+  heroLeft:     { display:"flex", alignItems:"center", gap:18 },
+  avatar:       { width:60, height:60, borderRadius:"50%", background:"linear-gradient(135deg,#be185d,#f9a8d4)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:26, fontWeight:800, color:"#fff", border:"3px solid rgba(255,255,255,0.2)" },
+  greetText:    { fontSize:14, color:"rgba(255,255,255,0.6)" },
+  nameText:     { fontSize:24, fontWeight:800, letterSpacing:"-0.5px" },
+  roleText:     { fontSize:13, color:"rgba(255,255,255,0.5)", marginTop:2 },
+  heroRight:    { display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10 },
+  clockBox:     { textAlign:"right" },
+  clockTime:    { fontSize:28, fontWeight:800, letterSpacing:"-1px" },
+  clockDate:    { fontSize:12, color:"rgba(255,255,255,0.5)" },
+  checkInBtn:   { padding:"10px 24px", borderRadius:10, border:"none", background:"#10b981", color:"#fff", fontWeight:700, fontSize:14, cursor:"pointer" },
+  checkOutBtn:  { padding:"8px 20px", borderRadius:10, border:"none", background:"rgba(239,68,68,0.8)", color:"#fff", fontWeight:700, fontSize:13, cursor:"pointer", marginTop:6 },
+  checkedInBadge:{ fontSize:12, color:"#6ee7b7", marginBottom:4 },
+  checkedOutBadge:{ background:"rgba(16,185,129,0.15)", border:"1px solid rgba(16,185,129,0.3)", borderRadius:10, padding:"8px 16px", fontSize:13, color:"#6ee7b7", fontWeight:600 },
+  tabRow:       { display:"flex", gap:4, marginBottom:20, background:"#f3f4f6", padding:4, borderRadius:10, flexWrap:"wrap" },
+  tab:          { padding:"8px 16px", borderRadius:7, border:"none", background:"transparent", cursor:"pointer", fontSize:13, color:"#6b7280", fontWeight:500 },
+  tabActive:    { background:"#fff", color:"#be185d", fontWeight:700, boxShadow:"0 1px 4px rgba(0,0,0,0.1)" },
+  kpiGrid:      { display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16 },
+  kpiCard:      { background:"#fff", borderRadius:14, padding:"20px", border:"1px solid #f3f4f6", boxShadow:"0 2px 8px rgba(0,0,0,0.04)", textAlign:"center" },
+  kpiVal:       { fontSize:24, fontWeight:800, marginBottom:4 },
+  kpiLabel:     { fontSize:12, color:"#9ca3af" },
+  card:         { background:"#fff", borderRadius:14, border:"1px solid #f3f4f6", padding:"20px 24px", marginBottom:16, boxShadow:"0 2px 8px rgba(0,0,0,0.04)" },
+  cardTitle:    { fontSize:15, fontWeight:700, marginBottom:16 },
+  apptRow:      { display:"flex", alignItems:"center", gap:14, padding:"10px 0", borderBottom:"1px solid #f9fafb" },
+  apptTime:     { fontSize:13, fontWeight:700, color:"#6366f1", minWidth:70 },
+  apptClient:   { fontWeight:600, fontSize:14 },
+  apptService:  { fontSize:12, color:"#9ca3af" },
+  scheduleCard: { background:"#f9fafb", borderRadius:12, padding:"16px 18px", marginBottom:10, border:"1px solid #f3f4f6" },
+  scheduleTime: { fontSize:22, fontWeight:800, color:"#6366f1" },
+  scheduleClient:{ fontSize:16, fontWeight:700, marginTop:4 },
+  scheduleService:{ fontSize:13, color:"#6b7280", marginTop:2 },
+  scheduleDuration:{ fontSize:12, color:"#9ca3af", marginTop:4 },
+  attGrid:      { display:"grid", gridTemplateColumns:"repeat(10,1fr)", gap:6, marginTop:8 },
+  attDot:       { borderRadius:8, padding:"6px 4px", textAlign:"center", fontSize:11, fontWeight:700 },
+  legend:       { display:"inline-block", width:10, height:10, borderRadius:"50%", marginRight:4 },
+  tableHead:    { display:"flex", padding:"10px 16px", background:"#f9fafb", borderRadius:"8px 8px 0 0", fontSize:11, fontWeight:700, color:"#6b7280", textTransform:"uppercase", letterSpacing:"0.5px" },
+  tableRow:     { display:"flex", padding:"12px 16px", borderBottom:"1px solid #f9fafb", fontSize:13, alignItems:"center" },
+  badge:        { display:"inline-block", padding:"3px 10px", borderRadius:20, fontSize:11, fontWeight:600 },
+  tinyBtn:      { padding:"5px 12px", borderRadius:6, border:"none", fontSize:12, cursor:"pointer", fontWeight:600 },
+  clientAvatar: { width:32, height:32, borderRadius:"50%", background:"linear-gradient(135deg,#fce7f3,#fbcfe8)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, fontWeight:700, color:"#be185d", flexShrink:0 },
+  maskedPhone:  { fontFamily:"monospace", fontSize:13, color:"#6b7280", background:"#f3f4f6", padding:"2px 8px", borderRadius:6 },
+  tag:          { fontSize:11, background:"#f3f4f6", padding:"2px 8px", borderRadius:12, color:"#374151" },
+  shieldNotice: { marginTop:16, background:"#ede9fe", borderRadius:10, padding:"12px 16px", fontSize:13, color:"#5b21b6", display:"flex", alignItems:"center", gap:8 },
+  empty:        { textAlign:"center", padding:"32px", color:"#9ca3af", fontSize:14 },
+  perfGrid:     { display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16 },
+  perfCard:     { background:"#fff", borderRadius:14, padding:"24px 20px", border:"1px solid #f3f4f6", boxShadow:"0 2px 8px rgba(0,0,0,0.04)", textAlign:"center", display:"flex", flexDirection:"column", gap:6, alignItems:"center" },
+};
