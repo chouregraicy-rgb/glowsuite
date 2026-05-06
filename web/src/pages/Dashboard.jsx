@@ -13,6 +13,7 @@ import Billing from './Billing'
 import BridalTimeline from './BridalTimeline'
 import Reports from './Reports'
 import Inventory from './Inventory'
+import EmployeeDashboard from './EmployeeDashboard'
 // ─── ICONS (inline SVG) ──────────────────────────────────────────────────────
 const Icon = ({ d, size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -128,14 +129,37 @@ function Badge({ status }) {
 export default function Dashboard() {
   const { user, profile, loading, signOut, currencySymbol } = useAuth()
 
-// Wait for profile to load before rendering
-if (loading || !profile) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#1a1a1a', color: '#888', fontSize: 14 }}>
-      Loading GlowSuite…
-    </div>
-  )
-}
+  // Wait for profile to load before rendering
+  if (loading) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#1a1a1a', color:'#888', fontSize:14 }}>
+        Loading GlowSuite…
+      </div>
+    )
+  }
+
+  // ── Role-based routing ──────────────────────────────────────
+  // If employee → show employee dashboard
+  if (!profile) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background:'#f8f5f0', gap:12, color:'#888' }}>
+        <div style={{ fontSize:32 }}>🔍</div>
+        <div style={{ fontSize:16, fontWeight:600, color:'#1a0a0a' }}>Profile not found</div>
+        <div style={{ fontSize:13 }}>Your account isn't linked to a salon yet.</div>
+        <button
+          style={{ marginTop:8, padding:'10px 20px', background:'#8b2252', color:'#fff', border:'none', borderRadius:8, cursor:'pointer', fontSize:13, fontWeight:600 }}
+          onClick={signOut}
+        >
+          Sign Out
+        </button>
+      </div>
+    )
+  }
+
+  // Employee role → show employee dashboard
+  if (profile.role === 'employee') {
+    return <EmployeeDashboard />
+  }
   const navigate = useNavigate()
   const [active, setActive] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(true)
